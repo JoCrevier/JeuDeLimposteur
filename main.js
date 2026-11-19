@@ -14,12 +14,14 @@ import {
   MIN_PLAYERS,
   MAX_PLAYERS,
   TURN_SECONDS,
+  VOTE_SECONDS,
   PALETTE,
   ALLOWED_HEX_SET,
   THEMES,
   THEME_LIST,
   DEFAULT_THEME_ID,
   normalizeThemeId,
+  pickSecretWord,
   generateSessionCode,
   sanitizePlayersList,
   resolveHostId,
@@ -42,7 +44,9 @@ const state = {
   authReady: false,
   isNewSession: false,
   turnTimerInterval: null,
-  timeoutTriggeredForTurn: null
+  voteTimerInterval: null,
+  timeoutTriggeredForTurn: null,
+  timeoutTriggeredForVoteRound: null
 };
 
 const screens = {
@@ -113,7 +117,28 @@ const resultBanner = document.getElementById("resultBanner");
 const gameLeaveBtn = document.getElementById("gameLeaveBtn");
 const nextRoundBtn = document.getElementById("nextRoundBtn");
 
-// Barre de tour actif + chronomètre
+// Affichage permanent du code de session durant la partie (même après déconnexion/reconnexion)
+const gameSessionCodeBadge = document.createElement("div");
+gameSessionCodeBadge.className = "session-code-badge";
+gameSessionCodeBadge.style.display = "inline-flex";
+gameSessionCodeBadge.style.alignItems = "center";
+gameSessionCodeBadge.style.gap = "6px";
+gameSessionCodeBadge.style.fontWeight = "700";
+gameSessionCodeBadge.style.fontSize = "0.9rem";
+gameSessionCodeBadge.style.padding = "4px 10px";
+gameSessionCodeBadge.style.borderRadius = "999px";
+gameSessionCodeBadge.style.background = "rgba(99, 102, 241, 0.14)";
+gameSessionCodeBadge.style.color = "var(--accent, #6366f1)";
+gameSessionCodeBadge.style.marginBottom = "8px";
+gameSessionCodeBadge.textContent = "Code session : -----";
+
+if (roundDisplay && roundDisplay.parentElement) {
+  roundDisplay.parentElement.insertBefore(gameSessionCodeBadge, roundDisplay);
+} else if (screens.game) {
+  screens.game.prepend(gameSessionCodeBadge);
+}
+
+// Barre de tour actif + chronomètre d'écriture
 const turnBox = document.createElement("div");
 turnBox.className = "turn-box";
 const turnStatusText = document.createElement("span");
@@ -124,11 +149,31 @@ turnTimerPill.textContent = `${TURN_SECONDS}s`;
 turnBox.append(turnStatusText, turnTimerPill);
 phaseWriteView.insertBefore(turnBox, writeInstruction);
 
+// Barre de chronomètre de vote (60s)
+const voteTimerBox = document.createElement("div");
+voteTimerBox.className = "turn-box";
+voteTimerBox.style.display = "flex";
+voteTimerBox.style.justifyContent = "space-between";
+voteTimerBox.style.alignItems = "center";
+voteTimerBox.style.marginBottom = "10px";
+const voteTimerLabel = document.createElement("span");
+voteTimerLabel.style.fontWeight = "600";
+voteTimerLabel.textContent = "Temps restant pour voter";
+const voteTimerPill = document.createElement("span");
+voteTimerPill.className = "timer-pill";
+voteTimerPill.textContent = `${VOTE_SECONDS}s`;
+voteTimerBox.append(voteTimerLabel, voteTimerPill);
+phaseVoteView.insertBefore(voteTimerBox, voteGrid);
+
 joinSubmitBtn.disabled = true;
 createSessionBtn.disabled = true;
 
 function isCurrentUserHost() {
   return Boolean(state.playerId && state.hostId && state.playerId === state.hostId);
+}
+
+function updateGameSessionCodeDisplay(code = state.sessionCode) {
+  gameSessionCodeBadge.textContent = code ? `Code session : ${code}` : "Code session : -----";
 }
 
 function resetLocalSessionState(noticeMessage = "") {
@@ -141,6 +186,8 @@ function resetLocalSessionState(noticeMessage = "") {
   state.game = null;
   state.isNewSession = false;
   state.timeoutTriggeredForTurn = null;
+  state.timeoutTriggeredForVoteRound = null;
+  updateGameSessionCodeDisplay(null);
   renderCounter([]);
   showScreen("code");
   if (noticeMessage) {
@@ -151,6 +198,9 @@ function resetLocalSessionState(noticeMessage = "") {
 function showScreen(name) {
   Object.values(screens).forEach((s) => s.classList.remove("active"));
   screens[name].classList.add("active");
+  if (name === "game") {
+    updateGameSessionCodeDisplay(state.sessionCode);
+  }
 }
 
 function showError(el, msg) {
@@ -170,8 +220,16 @@ function stopTurnTimer() {
   }
 }
 
+function stopVoteTimer() {
+  if (state.voteTimerInterval) {
+    clearInterval(state.voteTimerInterval);
+    state.voteTimerInterval = null;
+  }
+}
+
 function stopSalonListener() {
   stopTurnTimer();
+  stopVoteTimer();
   if (state.unsubscribeSalon) {
     state.unsubscribeSalon();
     state.unsubscribeSalon = null;
@@ -181,7 +239,6 @@ function stopSalonListener() {
 function getRemainingTurnSeconds(game) {
   if (!game?.turnDeadline) return TURN_SECONDS;
   const rawSeconds = Math.ceil((game.turnDeadline - Date.now()) / 1000);
-  // Protège contre un léger décalage d'horloge entre appareils (ex. horloge en retard)
   return Math.max(0, Math.min(TURN_SECONDS, rawSeconds));
 }
 
@@ -214,6 +271,77 @@ function startTurnTimer(game) {
   state.turnTimerInterval = setInterval(() => {
     updateTurnTimerDisplay(state.game);
   }, 250);
+}
+
+function getRemainingVoteSeconds(game) {
+  if (!game?.voteDeadline) return VOTE_SECONDS;
+  const rawSeconds = Math.ceil((game.voteDeadline - Date.now()) / 1000);
+  return Math.max(0, Math.min(VOTE_SECONDS, rawSeconds));
+}
+
+function updateVoteTimerDisplay(game) {
+  if (!game || game.phase !== "vote") {
+    stopVoteTimer();
+    return;
+  }
+
+  const remaining = getRemainingVoteSeconds(game);
+  voteTimerPill.textContent = `${remaining}s`;
+  voteTimerPill.classList.toggle("urgent", remaining <= 10);
+
+  if (remaining <= 0 && state.sessionCode && state.playerId) {
+    const voteKey = `${game.round || 1}`;
+    if (state.timeoutTriggeredForVoteRound !== voteKey) {
+      state.timeoutTriggeredForVoteRound = voteKey;
+      handleVoteTimeout();
+    }
+  }
+}
+
+function startVoteTimer(game) {
+  const voteKey = `${game?.round || 1}`;
+  if (state.timeoutTriggeredForVoteRound && state.timeoutTriggeredForVoteRound !== voteKey) {
+    state.timeoutTriggeredForVoteRound = null;
+  }
+  stopVoteTimer();
+  updateVoteTimerDisplay(game);
+  state.voteTimerInterval = setInterval(() => {
+    updateVoteTimerDisplay(state.game);
+  }, 250);
+}
+
+async function handleVoteTimeout() {
+  if (!state.sessionCode || !state.playerId) return;
+
+  try {
+    const salonRef = getSalonRef(state.sessionCode);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const game = data.game;
+      if (!game || game.phase !== "vote") return;
+
+      const deadline = game.voteDeadline || 0;
+      if (deadline && Date.now() < deadline - 200) return;
+
+      const players = sanitizePlayersList(data.players);
+      const outcome = resolveVotes(players, game);
+
+      transaction.update(salonRef, {
+        players: outcome.updatedPlayers,
+        game: {
+          ...game,
+          voteDeadline: null,
+          phase: outcome.nextPhase,
+          lastResult: outcome.resultData
+        },
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (err) {
+    console.error("Erreur expiration vote :", err);
+  }
 }
 
 async function handleTurnTimeout(expectedTurnIndex) {
@@ -408,6 +536,7 @@ function renderGame() {
   const game = state.game;
   if (!game) return;
 
+  updateGameSessionCodeDisplay(state.sessionCode);
   renderCounter(state.players);
   const themeLabel = game.themeLabel || THEMES[normalizeThemeId(state.selectedThemeId)].label;
   roundDisplay.textContent = `Manche ${game.round || 1} • Thème : ${themeLabel}`;
@@ -437,6 +566,7 @@ function renderGame() {
   const isMyTurn = activeTurnPlayerId === state.playerId && !amEliminated;
 
   if (game.phase === "write") {
+    stopVoteTimer();
     phaseTitle.textContent = `Phase 1 / 3 : Écriture (${Math.min(currentTurnIdx + 1, order.length)} / ${order.length})`;
     phaseWriteView.classList.remove("hidden");
 
@@ -480,6 +610,7 @@ function renderGame() {
   }
 
   if (game.phase === "discuss") {
+    stopVoteTimer();
     phaseTitle.textContent = "Phase 2 / 3 : Délibération";
     phaseDiscussView.classList.remove("hidden");
 
@@ -520,6 +651,7 @@ function renderGame() {
   if (game.phase === "vote") {
     phaseTitle.textContent = "Phase 3 / 3 : Vote d'exclusion";
     phaseVoteView.classList.remove("hidden");
+    startVoteTimer(game);
 
     const myVote = game.votes?.[state.playerId] || null;
     const votedCount = activePlayers.filter((p) => Boolean(game.votes?.[p.id])).length;
@@ -558,10 +690,13 @@ function renderGame() {
       voteGrid.appendChild(btn);
     });
 
-    voteProgressText.textContent = `${votedCount} / ${activePlayers.length} joueurs ont voté.`;
+    voteProgressText.textContent = `${votedCount} / ${activePlayers.length} joueurs ont voté (vote nul si personne ne vote avant la fin du chrono).`;
+  } else {
+    stopVoteTimer();
   }
 
   if (game.phase === "result" || game.phase === "finished") {
+    stopVoteTimer();
     phaseTitle.textContent = game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
     phaseResultView.classList.remove("hidden");
     resultBanner.textContent = game.lastResult?.message || "Manche terminée.";
@@ -718,6 +853,7 @@ joinForm.addEventListener("submit", async (e) => {
     state.selectedColor = null;
     state.players = currentPlayers;
     state.game = data?.game || null;
+    updateGameSessionCodeDisplay(code);
     renderCounter(currentPlayers);
     startSalonListener(code);
 
@@ -776,6 +912,7 @@ createSessionBtn.addEventListener("click", async () => {
     state.selectedColor = null;
     state.players = [];
     state.game = null;
+    updateGameSessionCodeDisplay(newCode);
     renderCounter([]);
     startSalonListener(newCode);
 
@@ -1095,6 +1232,7 @@ wordForm.addEventListener("submit", async (e) => {
 goToVoteBtn.addEventListener("click", async () => {
   if (!state.sessionCode || !state.playerId) return;
   goToVoteBtn.disabled = true;
+  hideError(gameError);
 
   try {
     const salonRef = getSalonRef(state.sessionCode);
@@ -1108,7 +1246,8 @@ goToVoteBtn.addEventListener("click", async () => {
         game: {
           ...data.game,
           phase: "vote",
-          votes: {}
+          votes: {},
+          voteDeadline: Date.now() + VOTE_SECONDS * 1000
         },
         updatedAt: serverTimestamp()
       });
@@ -1122,6 +1261,7 @@ goToVoteBtn.addEventListener("click", async () => {
 
 async function castVote(targetId) {
   if (!state.sessionCode || !state.playerId || targetId === state.playerId) return;
+  hideError(gameError);
 
   try {
     const salonRef = getSalonRef(state.sessionCode);
@@ -1131,6 +1271,10 @@ async function castVote(targetId) {
       const data = snap.data();
       const game = data.game;
       if (!game || game.phase !== "vote") return;
+
+      if (game.voteDeadline && Date.now() > game.voteDeadline + 250) {
+        throw new Error("VOTE_TIME_EXPIRED");
+      }
 
       const players = sanitizePlayersList(data.players);
       const me = players.find((p) => p.id === state.playerId);
@@ -1157,6 +1301,7 @@ async function castVote(targetId) {
         game: {
           ...game,
           votes: updatedVotes,
+          voteDeadline: null,
           phase: outcome.nextPhase,
           lastResult: outcome.resultData
         },
@@ -1164,14 +1309,19 @@ async function castVote(targetId) {
       });
     });
   } catch (err) {
-    console.error("Erreur vote :", err);
-    showError(gameError, "Erreur lors de l'enregistrement du vote.");
+    if (err.message === "VOTE_TIME_EXPIRED") {
+      showError(gameError, "Le temps de vote (60s) est écoulé.");
+    } else {
+      console.error("Erreur vote :", err);
+      showError(gameError, "Erreur lors de l'enregistrement du vote.");
+    }
   }
 }
 
 nextRoundBtn.addEventListener("click", async () => {
   if (!state.sessionCode) return;
   nextRoundBtn.disabled = true;
+  hideError(gameError);
 
   try {
     const salonRef = getSalonRef(state.sessionCode);
@@ -1196,13 +1346,19 @@ nextRoundBtn.addEventListener("click", async () => {
       } else if (game.phase === "result") {
         const players = sanitizePlayersList(data.players);
         const nextOrder = buildTurnOrder(players);
+        const safeThemeId = normalizeThemeId(data.themeId || game.themeId);
+        const nextSecretWord = pickSecretWord(safeThemeId, game.secretWord || null);
         transaction.update(salonRef, {
           game: {
             ...game,
             round: (game.round || 1) + 1,
+            themeId: safeThemeId,
+            themeLabel: THEMES[safeThemeId]?.label || game.themeLabel,
+            secretWord: nextSecretWord,
             turnOrder: nextOrder,
             currentTurnIndex: 0,
             turnDeadline: Date.now() + TURN_SECONDS * 1000,
+            voteDeadline: null,
             phase: "write",
             words: {},
             votes: {},

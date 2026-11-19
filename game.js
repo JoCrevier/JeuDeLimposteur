@@ -1,6 +1,7 @@
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 12;
 export const TURN_SECONDS = 20;
+export const VOTE_SECONDS = 60;
 
 export const PALETTE = [
   { name: "Rouge", hex: "#ef4444" },
@@ -112,6 +113,16 @@ export function normalizeThemeId(themeId) {
   return typeof themeId === "string" && themeId in THEMES ? themeId : DEFAULT_THEME_ID;
 }
 
+export function pickSecretWord(themeId, previousWord = null) {
+  const safeThemeId = normalizeThemeId(themeId);
+  const pool = THEMES[safeThemeId]?.words || THEMES[DEFAULT_THEME_ID].words;
+  if (pool.length <= 1) return pool[0] || "Mystère";
+
+  const candidates = previousWord ? pool.filter((w) => w !== previousWord) : pool;
+  const sourcePool = candidates.length > 0 ? candidates : pool;
+  return sourcePool[Math.floor(Math.random() * sourcePool.length)];
+}
+
 export function generateSessionCode() {
   return String(Math.floor(10000 + Math.random() * 90000));
 }
@@ -160,8 +171,7 @@ export function buildTurnOrder(players) {
 export function createInitialGameState(players, themeId = DEFAULT_THEME_ID, nowMs = Date.now()) {
   const safeThemeId = normalizeThemeId(themeId);
   const theme = THEMES[safeThemeId];
-  const pool = theme.words;
-  const randomWord = pool[Math.floor(Math.random() * pool.length)];
+  const randomWord = pickSecretWord(safeThemeId, null);
   const randomImpostor = players[Math.floor(Math.random() * players.length)];
   const turnOrder = buildTurnOrder(players);
 
@@ -176,6 +186,7 @@ export function createInitialGameState(players, themeId = DEFAULT_THEME_ID, nowM
     turnOrder,
     currentTurnIndex: 0,
     turnDeadline: turnOrder.length > 0 ? nowMs + TURN_SECONDS * 1000 : null,
+    voteDeadline: null,
     words: {},
     votes: {},
     lastResult: null
@@ -191,6 +202,7 @@ export function advanceWriteTurn(game, nowMs = Date.now()) {
       ...game,
       currentTurnIndex: nextIndex,
       turnDeadline: null,
+      voteDeadline: null,
       phase: "discuss"
     };
   }
@@ -199,6 +211,7 @@ export function advanceWriteTurn(game, nowMs = Date.now()) {
     ...game,
     currentTurnIndex: nextIndex,
     turnDeadline: nowMs + TURN_SECONDS * 1000,
+    voteDeadline: null,
     phase: "write"
   };
 }
@@ -206,13 +219,29 @@ export function advanceWriteTurn(game, nowMs = Date.now()) {
 export function resolveVotes(players, game) {
   const activePlayers = players.filter((p) => !p.eliminated);
   const tally = {};
+  let totalVotesCast = 0;
 
   activePlayers.forEach((p) => {
     const targetId = game.votes?.[p.id];
     if (targetId && activePlayers.some((ap) => ap.id === targetId)) {
       tally[targetId] = (tally[targetId] || 0) + 1;
+      totalVotesCast += 1;
     }
   });
+
+  if (totalVotesCast === 0) {
+    return {
+      updatedPlayers: players,
+      nextPhase: "result",
+      resultData: {
+        eliminatedId: null,
+        eliminatedName: null,
+        wasImpostor: false,
+        winner: null,
+        message: "Vote nul : personne n'a voté avant la fin du temps imparti. La partie continue !"
+      }
+    };
+  }
 
   let maxVotes = 0;
   let topCandidates = [];
