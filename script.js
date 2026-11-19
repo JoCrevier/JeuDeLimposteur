@@ -8,19 +8,18 @@ import {
   getFirestore,
   doc,
   getDoc,
-  setDoc,
   onSnapshot,
   runTransaction,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "VOTRE_API_KEY",
-  authDomain: "VOTRE_PROJET.firebaseapp.com",
-  projectId: "VOTRE_PROJET",
-  storageBucket: "VOTRE_PROJET.firebasestorage.app",
-  messagingSenderId: "VOTRE_SENDER_ID",
-  appId: "VOTRE_APP_ID"
+  apiKey: "AIzaSyAAayaz2-yzC5sPFMtGsfH8t5xiMaAo56U",
+  authDomain: "jeudelimposteur.firebaseapp.com",
+  projectId: "jeudelimposteur",
+  storageBucket: "jeudelimposteur.firebasestorage.app",
+  messagingSenderId: "533130309819",
+  appId: "1:533130309819:web:9fc5577a8a31e70608b99e"
 };
 
 const MIN_PLAYERS = 4;
@@ -41,6 +40,8 @@ const PALETTE = [
   { name: "Or", hex: "#eab308" },
   { name: "Ciel", hex: "#38bdf8" }
 ];
+
+const ALLOWED_HEX_SET = new Set(PALETTE.map((c) => c.hex));
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
@@ -80,11 +81,31 @@ const statusDot = document.getElementById("statusDot");
 const leaveBtn = document.getElementById("leaveBtn");
 const startGameBtn = document.getElementById("startGameBtn");
 const submitCodeBtn = codeForm.querySelector('button[type="submit"]');
+const submitProfileBtn = profileForm.querySelector('button[type="submit"]');
 
 submitCodeBtn.disabled = true;
 
 function getSalonRef(code) {
   return doc(db, "salons", code);
+}
+
+function sanitizePlayersList(rawPlayers) {
+  if (!Array.isArray(rawPlayers)) return [];
+  return rawPlayers
+    .filter(
+      (p) =>
+        p &&
+        typeof p.id === "string" &&
+        typeof p.name === "string" &&
+        typeof p.color === "string" &&
+        ALLOWED_HEX_SET.has(p.color)
+    )
+    .slice(0, MAX_PLAYERS)
+    .map((p) => ({
+      id: p.id,
+      name: p.name.trim().slice(0, 20) || "Joueur",
+      color: p.color
+    }));
 }
 
 function showScreen(name) {
@@ -114,10 +135,7 @@ function startSalonListener(code) {
   state.unsubscribeSalon = onSnapshot(
     getSalonRef(code),
     (snap) => {
-      state.players = snap.exists() && Array.isArray(snap.data().players)
-        ? snap.data().players
-        : [];
-
+      state.players = snap.exists() ? sanitizePlayersList(snap.data().players) : [];
       renderCounter(state.players);
 
       if (screens.lobby.classList.contains("active")) {
@@ -260,14 +278,11 @@ codeForm.addEventListener("submit", async (e) => {
   try {
     const salonRef = getSalonRef(code);
     const snap = await getDoc(salonRef);
-    const currentPlayers = snap.exists() && Array.isArray(snap.data().players)
-      ? snap.data().players
-      : [];
+    const currentPlayers = snap.exists() ? sanitizePlayersList(snap.data().players) : [];
 
     const alreadyIn = currentPlayers.some((p) => p.id === state.playerId);
     if (!alreadyIn && currentPlayers.length >= MAX_PLAYERS) {
       showError(codeError, `Cette session est complète (${MAX_PLAYERS}/${MAX_PLAYERS} joueurs maximum).`);
-      submitCodeBtn.disabled = false;
       return;
     }
 
@@ -302,8 +317,8 @@ profileForm.addEventListener("submit", async (e) => {
     showError(profileError, "Merci d'inscrire ton nom.");
     return;
   }
-  if (!chosenColor) {
-    showError(profileError, "Merci de choisir une couleur.");
+  if (!chosenColor || !ALLOWED_HEX_SET.has(chosenColor)) {
+    showError(profileError, "Merci de choisir une couleur valide.");
     return;
   }
   if (!state.sessionCode || !state.playerId) {
@@ -311,8 +326,7 @@ profileForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  const submitBtn = profileForm.querySelector('button[type="submit"]');
-  submitBtn.disabled = true;
+  submitProfileBtn.disabled = true;
   hideError(profileError);
 
   try {
@@ -320,10 +334,7 @@ profileForm.addEventListener("submit", async (e) => {
 
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(salonRef);
-      const existingPlayers = snap.exists() && Array.isArray(snap.data().players)
-        ? snap.data().players
-        : [];
-
+      const existingPlayers = snap.exists() ? sanitizePlayersList(snap.data().players) : [];
       const filtered = existingPlayers.filter((p) => p.id !== state.playerId);
 
       if (filtered.length >= MAX_PLAYERS) {
@@ -368,7 +379,7 @@ profileForm.addEventListener("submit", async (e) => {
       showError(profileError, "Impossible de rejoindre la session pour le moment.");
     }
   } finally {
-    submitBtn.disabled = false;
+    submitProfileBtn.disabled = false;
   }
 });
 
@@ -400,7 +411,7 @@ leaveBtn.addEventListener("click", async () => {
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(salonRef);
       if (!snap.exists()) return;
-      const existingPlayers = Array.isArray(snap.data().players) ? snap.data().players : [];
+      const existingPlayers = sanitizePlayersList(snap.data().players);
       const updated = existingPlayers.filter((p) => p.id !== uid);
       transaction.update(salonRef, {
         players: updated,

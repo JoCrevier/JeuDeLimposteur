@@ -1,97 +1,109 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Salon de Jeu — Connexion par Code</title>
-  <link rel="stylesheet" href="./style.css" />
-</head>
-<body>
-  <main class="app">
-    <header>
-      <div>
-        <h1>Arène de Jeu</h1>
-        <p class="subtitle">4 joueurs minimum • 12 joueurs maximum</p>
-      </div>
-      <div class="badge" id="statusBadge">
-        <span class="dot" id="statusDot"></span>
-        <span id="playerCountText">0 / 12 joueurs</span>
-      </div>
-    </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Salon de Jeu — Connexion par Code</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <div>
+          <h1>Arène de Jeu</h1>
+          <p class="subtitle">4 joueurs minimum • 12 joueurs maximum</p>
+        </div>
+        <div class="badge" id="statusBadge">
+          <span class="dot" id="statusDot"></span>
+          <span id="playerCountText">0 / 12 joueurs</span>
+        </div>
+      </header>
 
-    <!-- ÉCRAN 1 : CODE À 5 CHIFFRES -->
-    <section id="screenCode" class="screen active">
-      <form id="codeForm">
-        <div class="form-group">
-          <label for="codeInput">Code de session (5 chiffres)</label>
-          <div class="code-row">
+      <!-- ÉCRAN 1 : CODE À 5 CHIFFRES -->
+      <section id="screenCode" class="screen active">
+        <form id="codeForm">
+          <div class="form-group">
+            <label for="codeInput">Code de session (5 chiffres)</label>
+            <div class="code-row">
+              <input
+                id="codeInput"
+                type="text"
+                inputmode="numeric"
+                maxlength="5"
+                placeholder="00000"
+                autocomplete="off"
+                required
+              />
+              <button type="button" class="btn-secondary" id="randomCodeBtn">
+                Aléatoire
+              </button>
+            </div>
+            <p class="helper">
+              Entre un code à 5 chiffres pour rejoindre ou créer une session.
+            </p>
+          </div>
+
+          <div id="codeError" class="error-msg"></div>
+          <button type="submit" class="btn-primary">Continuer</button>
+        </form>
+      </section>
+
+      <!-- ÉCRAN 2 : CHOIX DU NOM ET DE LA COULEUR -->
+      <section id="screenProfile" class="screen">
+        <form id="profileForm">
+          <div class="form-group">
+            <label for="nameInput">Ton nom de joueur</label>
             <input
-              id="codeInput"
+              id="nameInput"
               type="text"
-              inputmode="numeric"
-              maxlength="5"
-              placeholder="00000"
+              maxlength="20"
+              placeholder="Ex. Alex, Nova, Léo..."
               autocomplete="off"
               required
             />
-            <button type="button" class="btn-secondary" id="randomCodeBtn">Aléatoire</button>
           </div>
-          <p class="helper">Entre un code à 5 chiffres pour rejoindre ou créer une session.</p>
+
+          <div class="form-group">
+            <label>Choisis ta couleur</label>
+            <div class="colors-grid" id="colorsGrid"></div>
+            <p class="helper">
+              Les couleurs barrées sont déjà prises dans cette session.
+            </p>
+          </div>
+
+          <div id="profileError" class="error-msg"></div>
+          <div class="actions-bar">
+            <button type="button" class="btn-secondary" id="backToCodeBtn">
+              Changer de code
+            </button>
+            <button type="submit" class="btn-success">Rejoindre le jeu</button>
+          </div>
+        </form>
+      </section>
+
+      <!-- ÉCRAN 3 : SALLE DE JEU -->
+      <section id="screenLobby" class="screen">
+        <div class="lobby-top">
+          <div>
+            <span class="helper">Session active</span>
+            <div class="session-code-display" id="activeCodeDisplay">-----</div>
+          </div>
+          <div id="minPlayersNotice" class="helper lobby-notice"></div>
         </div>
 
-        <div id="codeError" class="error-msg"></div>
-        <button type="submit" class="btn-primary">Continuer</button>
-      </form>
-    </section>
+        <div class="players-grid" id="playersGrid"></div>
 
-    <!-- ÉCRAN 2 : CHOIX DU NOM ET DE LA COULEUR -->
-    <section id="screenProfile" class="screen">
-      <form id="profileForm">
-        <div class="form-group">
-          <label for="nameInput">Ton nom de joueur</label>
-          <input
-            id="nameInput"
-            type="text"
-            maxlength="20"
-            placeholder="Ex. Alex, Nova, Léo..."
-            autocomplete="off"
-            required
-          />
-        </div>
-
-        <div class="form-group">
-          <label>Choisis ta couleur</label>
-          <div class="colors-grid" id="colorsGrid"></div>
-          <p class="helper">Les couleurs barrées sont déjà prises dans cette session.</p>
-        </div>
-
-        <div id="profileError" class="error-msg"></div>
         <div class="actions-bar">
-          <button type="button" class="btn-secondary" id="backToCodeBtn">Changer de code</button>
-          <button type="submit" class="btn-success">Rejoindre le jeu</button>
+          <button type="button" class="btn-danger" id="leaveBtn">
+            Quitter la session
+          </button>
+          <button type="button" class="btn-success" id="startGameBtn" disabled>
+            Lancer la partie
+          </button>
         </div>
-      </form>
-    </section>
+      </section>
+    </main>
 
-    <!-- ÉCRAN 3 : SALLE DE JEU -->
-    <section id="screenLobby" class="screen">
-      <div class="lobby-top">
-        <div>
-          <span class="helper">Session active</span>
-          <div class="session-code-display" id="activeCodeDisplay">-----</div>
-        </div>
-        <div id="minPlayersNotice" class="helper lobby-notice"></div>
-      </div>
-
-      <div class="players-grid" id="playersGrid"></div>
-
-      <div class="actions-bar">
-        <button type="button" class="btn-danger" id="leaveBtn">Quitter la session</button>
-        <button type="button" class="btn-success" id="startGameBtn" disabled>Lancer la partie</button>
-      </div>
-    </section>
-  </main>
-
-  <script type="module" src="./script.js"></script>
-</body>
+    <script type="module" src="./script.js"></script>
+  </body>
 </html>
