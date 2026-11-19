@@ -1,4 +1,5 @@
 import {
+  db,
   getSalonRef,
   initAnonymousSession,
   getDoc,
