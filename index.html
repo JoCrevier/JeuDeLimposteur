@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Salon de Jeu — Connexion par Code</title>
+    <title>Jeu de l'Imposteur — Salon & Partie</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
     <main class="app">
       <header>
         <div>
-          <h1>Arène de Jeu</h1>
+          <h1>Jeu de l'Imposteur</h1>
           <p class="subtitle">4 joueurs minimum • 12 joueurs maximum</p>
         </div>
         <div class="badge" id="statusBadge">
@@ -81,7 +81,7 @@
         </form>
       </section>
 
-      <!-- ÉCRAN 3 : SALLE DE JEU -->
+      <!-- ÉCRAN 3 : SALLE D'ATTENTE (TOUT LE MONDE DOIT ÊTRE PRÊT) -->
       <section id="screenLobby" class="screen">
         <div class="lobby-top">
           <div>
@@ -97,13 +97,81 @@
           <button type="button" class="btn-danger" id="leaveBtn">
             Quitter la session
           </button>
-          <button type="button" class="btn-success" id="startGameBtn" disabled>
-            Lancer la partie
+          <button type="button" class="btn-secondary" id="toggleReadyBtn">
+            Je suis prêt
           </button>
+        </div>
+      </section>
+
+      <!-- ÉCRAN 4 : PARTIE EN COURS (3 PHASES) -->
+      <section id="screenGame" class="screen">
+        <div class="lobby-top">
+          <div>
+            <span class="helper" id="roundDisplay">Manche 1</span>
+            <div class="phase-title" id="phaseTitle">Phase 1 : Écriture</div>
+          </div>
+          <div class="role-card" id="roleBanner"></div>
+        </div>
+
+        <div id="gameError" class="error-msg"></div>
+
+        <!-- PHASE 1 : ÉCRIRE UN MOT -->
+        <div id="phaseWriteView" class="game-phase-box">
+          <p class="phase-desc" id="writeInstruction"></p>
+          <form id="wordForm" class="code-row">
+            <input
+              id="wordInput"
+              type="text"
+              maxlength="30"
+              placeholder="Écris ton indice / mot..."
+              autocomplete="off"
+              required
+            />
+            <button type="submit" class="btn-primary" id="submitWordBtn" style="width: auto;">
+              Envoyer
+            </button>
+          </form>
+          <p class="helper" id="writeProgressText"></p>
+        </div>
+
+        <!-- PHASE 2 : DÉLIBÉRATION -->
+        <div id="phaseDiscussView" class="game-phase-box hidden">
+          <p class="phase-desc">
+            Observez les mots proposés par chacun. Qui semble déjà connaître le mot secret ?
+          </p>
+          <div class="words-list" id="wordsList"></div>
+          <div class="actions-bar" style="margin-top: 18px;">
+            <span class="helper">Discutez avant de passer au vote.</span>
+            <button type="button" class="btn-primary" id="goToVoteBtn" style="width: auto;">
+              Passer au vote (Phase 3)
+            </button>
+          </div>
+        </div>
+
+        <!-- PHASE 3 : VOTE D'EXCLUSION -->
+        <div id="phaseVoteView" class="game-phase-box hidden">
+          <p class="phase-desc">
+            Votez pour éliminer le joueur que vous soupçonnez d'être l'imposteur :
+          </p>
+          <div class="vote-grid" id="voteGrid"></div>
+          <p class="helper" id="voteProgressText"></p>
+        </div>
+
+        <!-- ÉCRAN DE RÉSULTAT / FIN DE MANCHE OU DE PARTIE -->
+        <div id="phaseResultView" class="game-phase-box hidden">
+          <div class="result-banner" id="resultBanner"></div>
+          <div class="actions-bar" style="margin-top: 18px;">
+            <button type="button" class="btn-danger" id="gameLeaveBtn">
+              Quitter
+            </button>
+            <button type="button" class="btn-success" id="nextRoundBtn">
+              Continuer
+            </button>
+          </div>
         </div>
       </section>
     </main>
 
-    <script type="module" src="./script.js"></script>
+    <script type="module" src="./main.js"></script>
   </body>
 </html>
