@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Écran Principal — Tableau de Jeu</title>
+  <link rel="stylesheet" href="board.css" />
+</head>
+<body>
+  <div class="board-app">
+    <header class="board-topbar">
+      <div class="brand-block">
+        <span class="live-indicator" id="liveIndicator" aria-hidden="true"></span>
+        <span class="board-title">Écran Principal</span>
+      </div>
+
+      <div class="session-pill-group">
+        <div class="code-box">
+          <span class="code-label">Code de session</span>
+          <strong id="boardCodeDisplay" class="code-value">-----</strong>
+        </div>
+        <div class="meta-pill" id="boardRoundDisplay">En attente de partie</div>
+        <div class="meta-pill" id="boardPhaseDisplay">Salon</div>
+        <div class="meta-pill timer-pill hidden" id="boardTimerPill">--s</div>
+      </div>
+    </header>
+
+    <main class="board-stage">
+      <!-- Colonne de gauche : Mots écrits en direct par les joueurs -->
+      <aside class="submitted-panel" aria-label="Mots écrits par les joueurs">
+        <div class="panel-header">
+          <h2>Mots écrits</h2>
+          <span class="panel-count" id="submittedCountBadge">0 mot</span>
+        </div>
+        <div id="submittedWordsList" class="submitted-words-list">
+          <div class="empty-words-state">
+            Aucun mot écrit pour le moment. Les mots apparaîtront ici en direct dès qu'un joueur valide son tour.
+          </div>
+        </div>
+      </aside>
+
+      <!-- Zone centrale : Thème principal au-dessus + Tous les mots du thème au centre -->
+      <section class="center-arena" aria-label="Thème et mots du thème">
+        <div class="theme-banner">
+          <span class="theme-eyebrow">Thème principal</span>
+          <h1 id="boardThemeTitle" class="theme-heading">Espace</h1>
+          <p id="boardStatusSubtext" class="theme-subtext">
+            En attente du démarrage de la session...
+          </p>
+        </div>
+
+        <div class="theme-words-board">
+          <div class="theme-words-header">
+            <span>Mots du thème</span>
+            <span id="themeWordsCount" class="words-total-tag">0 mots</span>
+          </div>
+          <div id="themeWordsGrid" class="theme-words-grid"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="board-footer">
+      <div id="boardPlayersStrip" class="players-strip"></div>
+      <div id="boardResultBanner" class="result-banner hidden"></div>
+    </footer>
+  </div>
+
+  <script type="module" src="board.js"></script>
+</body>
+</html>

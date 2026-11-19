@@ -174,7 +174,25 @@ function isCurrentUserHost() {
 
 function updateGameSessionCodeDisplay(code = state.sessionCode) {
   gameSessionCodeBadge.textContent = code ? `Code session : ${code}` : "Code session : -----";
+  if (code) persistSessionCodeForBoard(code);
 }
+
+function persistSessionCodeForBoard(code) {
+  if (!code) return;
+  try {
+    sessionStorage.setItem("activeSessionCode", code);
+  } catch (_) {
+    // Ignorer si sessionStorage indisponible
+  }
+}
+
+function openBoardWindow(code) {
+  if (!code) return;
+  persistSessionCodeForBoard(code);
+  const url = `board.html?code=${encodeURIComponent(code)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 
 function resetLocalSessionState(noticeMessage = "") {
   stopSalonListener();
@@ -975,6 +993,8 @@ profileForm.addEventListener("submit", async (e) => {
       state.isNewSession = false;
       state.hostId = state.playerId;
       state.players = [newPlayer];
+      persistSessionCodeForBoard(state.sessionCode);
+      openBoardWindow(state.sessionCode);
       renderLobby();
       showScreen("lobby");
       return;
