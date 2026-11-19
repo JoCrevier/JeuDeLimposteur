@@ -565,6 +565,9 @@ function startSalonListener(code) {
     getSalonRef(code),
     (snap) => {
       if (!snap.exists()) {
+        if (state.isNewSession && screens.profile.classList.contains("active")) {
+          return;
+        }
         const wasActive =
           screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
         resetLocalSessionState(wasActive ? "La session a été supprimée par l'hôte." : "");
