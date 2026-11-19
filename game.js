@@ -1,5 +1,6 @@
 export const MIN_PLAYERS = 4;
 export const MAX_PLAYERS = 12;
+export const TURN_SECONDS = 20;
 
 export const PALETTE = [
   { name: "Rouge", hex: "#ef4444" },
@@ -72,9 +73,19 @@ export function areAllPlayersReady(players) {
   return players.length >= MIN_PLAYERS && players.every((p) => p.ready === true);
 }
 
+export function buildTurnOrder(players) {
+  const activeIds = players.filter((p) => !p.eliminated).map((p) => p.id);
+  for (let i = activeIds.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [activeIds[i], activeIds[j]] = [activeIds[j], activeIds[i]];
+  }
+  return activeIds;
+}
+
 export function createInitialGameState(players) {
   const randomWord = SECRET_WORDS[Math.floor(Math.random() * SECRET_WORDS.length)];
   const randomImpostor = players[Math.floor(Math.random() * players.length)];
+  const turnOrder = buildTurnOrder(players);
 
   return {
     status: "playing",
@@ -82,9 +93,33 @@ export function createInitialGameState(players) {
     round: 1,
     secretWord: randomWord,
     impostorId: randomImpostor.id,
+    turnOrder,
+    currentTurnIndex: 0,
+    turnDeadline: Date.now() + TURN_SECONDS * 1000,
     words: {},
     votes: {},
     lastResult: null
+  };
+}
+
+export function advanceWriteTurn(game, nowMs = Date.now()) {
+  const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
+  const nextIndex = (game.currentTurnIndex || 0) + 1;
+
+  if (nextIndex >= order.length) {
+    return {
+      ...game,
+      currentTurnIndex: nextIndex,
+      turnDeadline: null,
+      phase: "discuss"
+    };
+  }
+
+  return {
+    ...game,
+    currentTurnIndex: nextIndex,
+    turnDeadline: nowMs + TURN_SECONDS * 1000,
+    phase: "write"
   };
 }
 

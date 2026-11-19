@@ -3,7 +3,6 @@ import {
   getSalonRef,
   initAnonymousSession,
   getDoc,
-  setDoc,
   deleteDoc,
   onSnapshot,
   runTransaction,
@@ -13,12 +12,15 @@ import {
 import {
   MIN_PLAYERS,
   MAX_PLAYERS,
+  TURN_SECONDS,
   PALETTE,
   ALLOWED_HEX_SET,
   generateSessionCode,
   sanitizePlayersList,
   areAllPlayersReady,
+  buildTurnOrder,
   createInitialGameState,
+  advanceWriteTurn,
   resolveVotes
 } from "./game.js";
 
@@ -30,7 +32,9 @@ const state = {
   game: null,
   unsubscribeSalon: null,
   authReady: false,
-  isNewSession: false
+  isNewSession: false,
+  turnTimerInterval: null,
+  timeoutTriggeredForTurn: null
 };
 
 const screens = {
@@ -96,6 +100,17 @@ const resultBanner = document.getElementById("resultBanner");
 const gameLeaveBtn = document.getElementById("gameLeaveBtn");
 const nextRoundBtn = document.getElementById("nextRoundBtn");
 
+// Barre de tour actif + chronomètre insérée dynamiquement dans phaseWriteView
+const turnBox = document.createElement("div");
+turnBox.className = "turn-box";
+const turnStatusText = document.createElement("span");
+turnStatusText.style.fontWeight = "600";
+const turnTimerPill = document.createElement("span");
+turnTimerPill.className = "timer-pill";
+turnTimerPill.textContent = `${TURN_SECONDS}s`;
+turnBox.append(turnStatusText, turnTimerPill);
+phaseWriteView.insertBefore(turnBox, writeInstruction);
+
 joinSubmitBtn.disabled = true;
 createSessionBtn.disabled = true;
 
@@ -114,10 +129,90 @@ function hideError(el) {
   el.classList.remove("visible");
 }
 
+function stopTurnTimer() {
+  if (state.turnTimerInterval) {
+    clearInterval(state.turnTimerInterval);
+    state.turnTimerInterval = null;
+  }
+}
+
 function stopSalonListener() {
+  stopTurnTimer();
   if (state.unsubscribeSalon) {
     state.unsubscribeSalon();
     state.unsubscribeSalon = null;
+  }
+}
+
+function getRemainingTurnSeconds(game) {
+  if (!game?.turnDeadline) return TURN_SECONDS;
+  return Math.max(0, Math.ceil((game.turnDeadline - Date.now()) / 1000));
+}
+
+function updateTurnTimerDisplay(game) {
+  if (!game || game.phase !== "write") {
+    stopTurnTimer();
+    return;
+  }
+
+  const remaining = getRemainingTurnSeconds(game);
+  turnTimerPill.textContent = `${remaining}s`;
+  turnTimerPill.classList.toggle("urgent", remaining <= 5);
+
+  if (remaining <= 0 && state.sessionCode && state.playerId) {
+    const turnKey = `${game.round || 1}-${game.currentTurnIndex || 0}`;
+    if (state.timeoutTriggeredForTurn !== turnKey) {
+      state.timeoutTriggeredForTurn = turnKey;
+      handleTurnTimeout(game.currentTurnIndex || 0);
+    }
+  }
+}
+
+function startTurnTimer(game) {
+  stopTurnTimer();
+  updateTurnTimerDisplay(game);
+  state.turnTimerInterval = setInterval(() => {
+    updateTurnTimerDisplay(state.game);
+  }, 250);
+}
+
+async function handleTurnTimeout(expectedTurnIndex) {
+  if (!state.sessionCode || !state.playerId) return;
+
+  try {
+    const salonRef = getSalonRef(state.sessionCode);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const game = data.game;
+      if (!game || game.phase !== "write") return;
+
+      const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
+      const currentIdx = game.currentTurnIndex || 0;
+      if (currentIdx !== expectedTurnIndex) return;
+
+      const deadline = game.turnDeadline || 0;
+      if (Date.now() < deadline - 150) return;
+
+      const activePlayerId = order[currentIdx];
+      const updatedWords = { ...(game.words || {}) };
+      if (activePlayerId && !(activePlayerId in updatedWords)) {
+        updatedWords[activePlayerId] = null;
+      }
+
+      const nextGame = advanceWriteTurn(
+        { ...game, words: updatedWords },
+        Date.now()
+      );
+
+      transaction.update(salonRef, {
+        game: nextGame,
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (err) {
+    console.error("Erreur expiration tour :", err);
   }
 }
 
@@ -225,12 +320,13 @@ function renderGame() {
   const amImpostor = game.impostorId === state.playerId;
   const amEliminated = Boolean(me?.eliminated);
 
+  // Chaque joueur sauf l'imposteur voit le mot secret commun
   if (amImpostor) {
     roleBanner.className = "role-card impostor";
-    roleBanner.textContent = `Rôle : IMPOSTEUR • Mot secret : ${game.secretWord}`;
+    roleBanner.textContent = "Rôle : IMPOSTEUR • Mot secret caché — devine-le !";
   } else {
     roleBanner.className = "role-card detective";
-    roleBanner.textContent = "Rôle : Enquêteur • Trouve le mot secret sans te faire piéger";
+    roleBanner.textContent = `Mot secret : ${game.secretWord} • Enquêteur`;
   }
 
   phaseWriteView.classList.add("hidden");
@@ -239,32 +335,51 @@ function renderGame() {
   phaseResultView.classList.add("hidden");
 
   const activePlayers = state.players.filter((p) => !p.eliminated);
+  const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
+  const currentTurnIdx = game.currentTurnIndex || 0;
+  const activeTurnPlayerId = order[currentTurnIdx] || null;
+  const activeTurnPlayer = state.players.find((p) => p.id === activeTurnPlayerId);
+  const isMyTurn = activeTurnPlayerId === state.playerId && !amEliminated;
 
+  // PHASE 1 : ÉCRITURE D'UN MOT (1 joueur à la fois, 20 secondes max)
   if (game.phase === "write") {
-    phaseTitle.textContent = "Phase 1 / 3 : Écriture d'un mot";
+    phaseTitle.textContent = `Phase 1 / 3 : Écriture (${Math.min(currentTurnIdx + 1, order.length)} / ${order.length})`;
     phaseWriteView.classList.remove("hidden");
 
-    const alreadySent = Boolean(game.words && game.words[state.playerId]);
-    const submittedCount = activePlayers.filter((p) => Boolean(game.words?.[p.id])).length;
+    const turnName = activeTurnPlayer
+      ? activeTurnPlayer.id === state.playerId
+        ? "C'est ton tour !"
+        : `Tour de ${activeTurnPlayer.name}`
+      : "Préparation du tour...";
+    turnStatusText.textContent = turnName;
+    startTurnTimer(game);
+
+    const completedTurns = order.filter((id) => Boolean(game.words && id in game.words)).length;
 
     if (amEliminated) {
-      writeInstruction.textContent = "Tu as été éliminé. Observe les joueurs restants écrire leur mot.";
+      writeInstruction.textContent = "Tu as été éliminé. Observe les tours des joueurs restants.";
       wordForm.classList.add("hidden");
-    } else if (alreadySent) {
-      writeInstruction.textContent = `Ton mot (« ${game.words[state.playerId]} ») est enregistré. En attente des autres joueurs...`;
-      wordForm.classList.add("hidden");
-    } else {
+    } else if (isMyTurn) {
       wordForm.classList.remove("hidden");
       wordInput.disabled = false;
       submitWordBtn.disabled = false;
       writeInstruction.textContent = amImpostor
-        ? `Tu connais le mot (« ${game.secretWord} »). Écris un mot proche sans te trahir !`
-        : "Écris un mot que tu penses proche du mot secret :";
+        ? `Tu ne connais pas le mot secret. Devinez-le à partir des indices et écris un mot en moins de ${TURN_SECONDS}s !`
+        : `Le mot secret est « ${game.secretWord} ». Écris un indice en moins de ${TURN_SECONDS}s :`;
+      wordInput.focus();
+    } else {
+      wordForm.classList.add("hidden");
+      writeInstruction.textContent = amImpostor
+        ? `Attends que ${activeTurnPlayer?.name || "le joueur"} écrive son mot pour t'aider à deviner le mot secret...`
+        : `Attends que ${activeTurnPlayer?.name || "le joueur"} écrive son mot (max ${TURN_SECONDS}s).`;
     }
 
-    writeProgressText.textContent = `${submittedCount} / ${activePlayers.length} joueurs ont écrit leur mot.`;
+    writeProgressText.textContent = `${completedTurns} / ${order.length} tours terminés.`;
+  } else {
+    stopTurnTimer();
   }
 
+  // PHASE 2 : DÉLIBÉRATION
   if (game.phase === "discuss") {
     phaseTitle.textContent = "Phase 2 / 3 : Délibération";
     phaseDiscussView.classList.remove("hidden");
@@ -286,9 +401,15 @@ function renderGame() {
 
       header.append(dot, nameSpan);
 
+      const submittedWord = game.words && p.id in game.words ? game.words[p.id] : null;
       const wordVal = document.createElement("div");
-      wordVal.className = "word-value";
-      wordVal.textContent = game.words?.[p.id] || "—";
+      if (submittedWord) {
+        wordVal.className = "word-value";
+        wordVal.textContent = submittedWord;
+      } else {
+        wordVal.className = "word-value missed";
+        wordVal.textContent = "Aucun mot (temps écoulé)";
+      }
 
       card.append(header, wordVal);
       wordsList.appendChild(card);
@@ -297,6 +418,7 @@ function renderGame() {
     goToVoteBtn.disabled = amEliminated;
   }
 
+  // PHASE 3 : VOTE
   if (game.phase === "vote") {
     phaseTitle.textContent = "Phase 3 / 3 : Vote d'exclusion";
     phaseVoteView.classList.remove("hidden");
@@ -319,8 +441,13 @@ function renderGame() {
       avatar.style.backgroundColor = target.color;
       avatar.textContent = target.name.charAt(0).toUpperCase();
 
+      const wordLabel =
+        game.words && target.id in game.words && game.words[target.id]
+          ? game.words[target.id]
+          : "Aucun mot";
+
       const label = document.createElement("span");
-      label.textContent = `${target.name} (${game.words?.[target.id] || "—"})`;
+      label.textContent = `${target.name} (${wordLabel})`;
 
       left.append(avatar, label);
 
@@ -336,6 +463,7 @@ function renderGame() {
     voteProgressText.textContent = `${votedCount} / ${activePlayers.length} joueurs ont voté.`;
   }
 
+  // RÉSULTAT DE MANCHE OU FIN DE PARTIE
   if (game.phase === "result" || game.phase === "finished") {
     phaseTitle.textContent = game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
     phaseResultView.classList.remove("hidden");
@@ -409,7 +537,6 @@ initAnonymousSession(
   }
 );
 
-// Bascule entre « Rejoindre une session active » et « Créer une session »
 modeJoinBtn.addEventListener("click", () => {
   modeJoinBtn.classList.add("active");
   modeCreateBtn.classList.remove("active");
@@ -558,7 +685,7 @@ createSessionBtn.addEventListener("click", async () => {
   }
 });
 
-// ÉCRAN 2 : Profil (enregistre la session dans Firestore si nouvelle, ou rejoint si active)
+// ÉCRAN 2 : Profil
 profileForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const cleanName = nameInput.value.trim().slice(0, 20);
@@ -710,7 +837,7 @@ toggleReadyBtn.addEventListener("click", async () => {
   }
 });
 
-// QUITTER LA SESSION : supprime le document Firestore dès qu'il reste 0 joueur
+// QUITTER LA SESSION
 async function leaveSession() {
   const code = state.sessionCode;
   const uid = state.playerId;
@@ -753,7 +880,7 @@ async function leaveSession() {
 leaveBtn.addEventListener("click", leaveSession);
 gameLeaveBtn.addEventListener("click", leaveSession);
 
-// ÉCRAN 4 — PHASE 1 : Soumettre son mot
+// ÉCRAN 4 — PHASE 1 : Soumettre son mot (à son tour, avant la fin des 20s)
 wordForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const word = wordInput.value.trim().slice(0, 30);
@@ -771,28 +898,42 @@ wordForm.addEventListener("submit", async (e) => {
       const game = data.game;
       if (!game || game.phase !== "write") return;
 
+      const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
+      const currentIdx = game.currentTurnIndex || 0;
+      if (order[currentIdx] !== state.playerId) {
+        throw new Error("NOT_YOUR_TURN");
+      }
+
+      if (game.turnDeadline && Date.now() > game.turnDeadline + 250) {
+        throw new Error("TIME_EXPIRED");
+      }
+
       const players = sanitizePlayersList(data.players);
       const me = players.find((p) => p.id === state.playerId);
       if (!me || me.eliminated) return;
 
       const updatedWords = { ...(game.words || {}), [state.playerId]: word };
-      const activePlayers = players.filter((p) => !p.eliminated);
-      const allSubmitted = activePlayers.every((p) => Boolean(updatedWords[p.id]));
+      const nextGame = advanceWriteTurn(
+        { ...game, words: updatedWords },
+        Date.now()
+      );
 
       transaction.update(salonRef, {
-        game: {
-          ...game,
-          words: updatedWords,
-          phase: allSubmitted ? "discuss" : "write"
-        },
+        game: nextGame,
         updatedAt: serverTimestamp()
       });
     });
 
     wordInput.value = "";
   } catch (err) {
-    console.error("Erreur envoi mot :", err);
-    showError(gameError, "Impossible d'enregistrer ton mot.");
+    if (err.message === "NOT_YOUR_TURN") {
+      showError(gameError, "Ce n'est pas ton tour d'écrire.");
+    } else if (err.message === "TIME_EXPIRED") {
+      showError(gameError, "Les 20 secondes sont écoulées : tu perds ton mot pour ce tour.");
+    } else {
+      console.error("Erreur envoi mot :", err);
+      showError(gameError, "Impossible d'enregistrer ton mot.");
+    }
   } finally {
     submitWordBtn.disabled = false;
   }
@@ -903,10 +1044,15 @@ nextRoundBtn.addEventListener("click", async () => {
           updatedAt: serverTimestamp()
         });
       } else if (game.phase === "result") {
+        const players = sanitizePlayersList(data.players);
+        const nextOrder = buildTurnOrder(players);
         transaction.update(salonRef, {
           game: {
             ...game,
             round: (game.round || 1) + 1,
+            turnOrder: nextOrder,
+            currentTurnIndex: 0,
+            turnDeadline: Date.now() + TURN_SECONDS * 1000,
             phase: "write",
             words: {},
             votes: {},
