@@ -68,7 +68,6 @@ const joinSubmitBtn = document.getElementById("joinSubmitBtn");
 const createSessionBtn = document.getElementById("createSessionBtn");
 
 // Écran 2 : Profil
-const profileCodeDisplay = document.getElementById("profileCodeDisplay");
 const profileModeBadge = document.getElementById("profileModeBadge");
 const nameInput = document.getElementById("nameInput");
 const profileForm = document.getElementById("profileForm");
@@ -78,7 +77,6 @@ const backToCodeBtn = document.getElementById("backToCodeBtn");
 const submitProfileBtn = profileForm.querySelector('button[type="submit"]');
 
 // Écran 3 : Salon & Hôte
-const activeCodeDisplay = document.getElementById("activeCodeDisplay");
 const minPlayersNotice = document.getElementById("minPlayersNotice");
 const themeGrid = document.getElementById("themeGrid");
 const themeHint = document.getElementById("themeHint");
@@ -117,27 +115,6 @@ const resultBanner = document.getElementById("resultBanner");
 const gameLeaveBtn = document.getElementById("gameLeaveBtn");
 const nextRoundBtn = document.getElementById("nextRoundBtn");
 
-// Affichage permanent du code de session durant la partie (même après déconnexion/reconnexion)
-const gameSessionCodeBadge = document.createElement("div");
-gameSessionCodeBadge.className = "session-code-badge";
-gameSessionCodeBadge.style.display = "inline-flex";
-gameSessionCodeBadge.style.alignItems = "center";
-gameSessionCodeBadge.style.gap = "6px";
-gameSessionCodeBadge.style.fontWeight = "700";
-gameSessionCodeBadge.style.fontSize = "0.9rem";
-gameSessionCodeBadge.style.padding = "4px 10px";
-gameSessionCodeBadge.style.borderRadius = "999px";
-gameSessionCodeBadge.style.background = "rgba(99, 102, 241, 0.14)";
-gameSessionCodeBadge.style.color = "var(--accent, #6366f1)";
-gameSessionCodeBadge.style.marginBottom = "8px";
-gameSessionCodeBadge.textContent = "Code session : -----";
-
-if (roundDisplay && roundDisplay.parentElement) {
-  roundDisplay.parentElement.insertBefore(gameSessionCodeBadge, roundDisplay);
-} else if (screens.game) {
-  screens.game.prepend(gameSessionCodeBadge);
-}
-
 // Barre de tour actif + chronomètre d'écriture
 const turnBox = document.createElement("div");
 turnBox.className = "turn-box";
@@ -173,7 +150,6 @@ function isCurrentUserHost() {
 }
 
 function updateGameSessionCodeDisplay(code = state.sessionCode) {
-  gameSessionCodeBadge.textContent = code ? `Code session : ${code}` : "Code session : -----";
   if (code) persistSessionCodeForBoard(code);
 }
 
@@ -192,7 +168,6 @@ function openBoardWindow(code) {
   const url = `board.html?code=${encodeURIComponent(code)}`;
   window.open(url, "_blank", "noopener,noreferrer");
 }
-
 
 function resetLocalSessionState(noticeMessage = "") {
   stopSalonListener();
@@ -498,8 +473,7 @@ function renderColorPicker() {
 }
 
 function renderLobby() {
-  activeCodeDisplay.textContent = state.sessionCode;
-  renderCounter(state.players);
+    renderCounter(state.players);
   renderThemeSelector();
 
   const amHost = isCurrentUserHost();
@@ -882,7 +856,6 @@ joinForm.addEventListener("submit", async (e) => {
       renderLobby();
       showScreen("lobby");
     } else {
-      profileCodeDisplay.textContent = code;
       profileModeBadge.textContent = "Session active";
       renderColorPicker();
       showScreen("profile");
@@ -934,7 +907,6 @@ createSessionBtn.addEventListener("click", async () => {
     renderCounter([]);
     startSalonListener(newCode);
 
-    profileCodeDisplay.textContent = newCode;
     profileModeBadge.textContent = "Nouvelle session";
     renderColorPicker();
     showScreen("profile");

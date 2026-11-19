@@ -307,12 +307,6 @@ button:disabled {
   border: 1px solid var(--border);
 }
 
-.session-code-display {
-  font-size: 1.2rem;
-  font-weight: 700;
-  letter-spacing: 0.15em;
-}
-
 .lobby-notice {
   margin: 0;
   font-size: 0.9rem;
@@ -614,4 +608,31 @@ button:disabled {
   border: 1px solid var(--border);
   font-size: 1rem;
   line-height: 1.6;
+}
+@media (max-width: 600px) {
+  body {
+    padding: 12px;
+  }
+
+  .app {
+    padding: 18px;
+    border-radius: 12px;
+  }
+
+  .mode-switch {
+    grid-template-columns: 1fr;
+  }
+
+  .code-row {
+    flex-direction: column;
+  }
+
+  .actions-bar {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .actions-bar button {
+    width: 100%;
+  }
 }
