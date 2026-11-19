@@ -43,6 +43,10 @@ const SECRET_WORDS = [
   "Bibliothèque"
 ];
 
+export function generateSessionCode() {
+  return String(Math.floor(10000 + Math.random() * 90000));
+}
+
 export function sanitizePlayersList(rawPlayers) {
   if (!Array.isArray(rawPlayers)) return [];
   return rawPlayers
@@ -74,7 +78,7 @@ export function createInitialGameState(players) {
 
   return {
     status: "playing",
-    phase: "write", // "write" | "discuss" | "vote" | "result" | "finished"
+    phase: "write",
     round: 1,
     secretWord: randomWord,
     impostorId: randomImpostor.id,
@@ -107,7 +111,6 @@ export function resolveVotes(players, game) {
     }
   });
 
-  // Égalité : personne n'est éliminé, on continue la partie
   if (topCandidates.length !== 1) {
     return {
       updatedPlayers: players,

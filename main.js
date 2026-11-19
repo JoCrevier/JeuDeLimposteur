@@ -2,6 +2,8 @@ import {
   getSalonRef,
   initAnonymousSession,
   getDoc,
+  setDoc,
+  deleteDoc,
   onSnapshot,
   runTransaction,
   serverTimestamp
@@ -12,6 +14,7 @@ import {
   MAX_PLAYERS,
   PALETTE,
   ALLOWED_HEX_SET,
+  generateSessionCode,
   sanitizePlayersList,
   areAllPlayersReady,
   createInitialGameState,
@@ -25,7 +28,8 @@ const state = {
   players: [],
   game: null,
   unsubscribeSalon: null,
-  authReady: false
+  authReady: false,
+  isNewSession: false
 };
 
 const screens = {
@@ -35,14 +39,20 @@ const screens = {
   game: document.getElementById("screenGame")
 };
 
-// Écran 1 : Code
+// Écran 1 : Créer ou Rejoindre
+const modeJoinBtn = document.getElementById("modeJoinBtn");
+const modeCreateBtn = document.getElementById("modeCreateBtn");
+const joinForm = document.getElementById("joinForm");
+const createBox = document.getElementById("createBox");
 const codeInput = document.getElementById("codeInput");
-const codeForm = document.getElementById("codeForm");
 const codeError = document.getElementById("codeError");
-const randomCodeBtn = document.getElementById("randomCodeBtn");
-const submitCodeBtn = codeForm.querySelector('button[type="submit"]');
+const createError = document.getElementById("createError");
+const joinSubmitBtn = document.getElementById("joinSubmitBtn");
+const createSessionBtn = document.getElementById("createSessionBtn");
 
 // Écran 2 : Profil
+const profileCodeDisplay = document.getElementById("profileCodeDisplay");
+const profileModeBadge = document.getElementById("profileModeBadge");
 const nameInput = document.getElementById("nameInput");
 const profileForm = document.getElementById("profileForm");
 const profileError = document.getElementById("profileError");
@@ -85,7 +95,8 @@ const resultBanner = document.getElementById("resultBanner");
 const gameLeaveBtn = document.getElementById("gameLeaveBtn");
 const nextRoundBtn = document.getElementById("nextRoundBtn");
 
-submitCodeBtn.disabled = true;
+joinSubmitBtn.disabled = true;
+createSessionBtn.disabled = true;
 
 function showScreen(name) {
   Object.values(screens).forEach((s) => s.classList.remove("active"));
@@ -228,7 +239,6 @@ function renderGame() {
 
   const activePlayers = state.players.filter((p) => !p.eliminated);
 
-  // PHASE 1 : ÉCRITURE D'UN MOT
   if (game.phase === "write") {
     phaseTitle.textContent = "Phase 1 / 3 : Écriture d'un mot";
     phaseWriteView.classList.remove("hidden");
@@ -254,7 +264,6 @@ function renderGame() {
     writeProgressText.textContent = `${submittedCount} / ${activePlayers.length} joueurs ont écrit leur mot.`;
   }
 
-  // PHASE 2 : DÉLIBÉRATION
   if (game.phase === "discuss") {
     phaseTitle.textContent = "Phase 2 / 3 : Délibération";
     phaseDiscussView.classList.remove("hidden");
@@ -287,7 +296,6 @@ function renderGame() {
     goToVoteBtn.disabled = amEliminated;
   }
 
-  // PHASE 3 : VOTE
   if (game.phase === "vote") {
     phaseTitle.textContent = "Phase 3 / 3 : Vote d'exclusion";
     phaseVoteView.classList.remove("hidden");
@@ -327,7 +335,6 @@ function renderGame() {
     voteProgressText.textContent = `${votedCount} / ${activePlayers.length} joueurs ont voté.`;
   }
 
-  // RÉSULTAT DE MANCHE OU FIN DE PARTIE
   if (game.phase === "result" || game.phase === "finished") {
     phaseTitle.textContent = game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
     phaseResultView.classList.remove("hidden");
@@ -347,6 +354,11 @@ function startSalonListener(code) {
         state.players = [];
         state.game = null;
         renderCounter([]);
+        if (screens.lobby.classList.contains("active") || screens.game.classList.contains("active")) {
+          stopSalonListener();
+          state.sessionCode = null;
+          showScreen("code");
+        }
         return;
       }
 
@@ -387,25 +399,41 @@ initAnonymousSession(
   (uid) => {
     state.playerId = uid;
     state.authReady = true;
-    submitCodeBtn.disabled = false;
+    joinSubmitBtn.disabled = false;
+    createSessionBtn.disabled = false;
   },
   () => {
     showError(codeError, "Impossible d'initialiser la session sécurisée.");
+    showError(createError, "Impossible d'initialiser la session sécurisée.");
   }
 );
 
-// ÉCRAN 1 : Code de session
+// Bascule entre « Rejoindre une session active » et « Créer une session »
+modeJoinBtn.addEventListener("click", () => {
+  modeJoinBtn.classList.add("active");
+  modeCreateBtn.classList.remove("active");
+  joinForm.classList.remove("hidden");
+  createBox.classList.add("hidden");
+  hideError(codeError);
+  hideError(createError);
+});
+
+modeCreateBtn.addEventListener("click", () => {
+  modeCreateBtn.classList.add("active");
+  modeJoinBtn.classList.remove("active");
+  createBox.classList.remove("hidden");
+  joinForm.classList.add("hidden");
+  hideError(codeError);
+  hideError(createError);
+});
+
 codeInput.addEventListener("input", () => {
   codeInput.value = codeInput.value.replace(/\D/g, "").slice(0, 5);
   hideError(codeError);
 });
 
-randomCodeBtn.addEventListener("click", () => {
-  codeInput.value = String(Math.floor(10000 + Math.random() * 90000));
-  hideError(codeError);
-});
-
-codeForm.addEventListener("submit", async (e) => {
+// REJOINDRE UNE SESSION ACTIVE
+joinForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!state.authReady || !state.playerId) {
     showError(codeError, "Connexion en cours, réessaie dans un instant.");
@@ -418,18 +446,31 @@ codeForm.addEventListener("submit", async (e) => {
     return;
   }
 
-  submitCodeBtn.disabled = true;
+  joinSubmitBtn.disabled = true;
   hideError(codeError);
 
   try {
     const salonRef = getSalonRef(code);
     const snap = await getDoc(salonRef);
-    const data = snap.exists() ? snap.data() : null;
-    const currentPlayers = data ? sanitizePlayersList(data.players) : [];
+
+    if (!snap.exists()) {
+      showError(codeError, "Aucune session active trouvée avec ce code.");
+      return;
+    }
+
+    const data = snap.data();
+    const currentPlayers = sanitizePlayersList(data.players);
+
+    if (currentPlayers.length === 0) {
+      await deleteDoc(salonRef);
+      showError(codeError, "Cette session est vide et a été fermée.");
+      return;
+    }
+
     const alreadyIn = currentPlayers.some((p) => p.id === state.playerId);
 
     if (!alreadyIn && data?.game?.status === "playing") {
-      showError(codeError, "Une partie est déjà en cours dans ce salon.");
+      showError(codeError, "Une partie est déjà en cours dans cette session.");
       return;
     }
 
@@ -439,6 +480,7 @@ codeForm.addEventListener("submit", async (e) => {
     }
 
     state.sessionCode = code;
+    state.isNewSession = false;
     state.selectedColor = null;
     state.players = currentPlayers;
     state.game = data?.game || null;
@@ -452,19 +494,70 @@ codeForm.addEventListener("submit", async (e) => {
       renderLobby();
       showScreen("lobby");
     } else {
+      profileCodeDisplay.textContent = code;
+      profileModeBadge.textContent = "Session active";
       renderColorPicker();
       showScreen("profile");
       nameInput.focus();
     }
   } catch (err) {
-    console.error("Erreur accès salon :", err);
+    console.error("Erreur accès session :", err);
     showError(codeError, "Erreur de connexion à la base de données.");
   } finally {
-    submitCodeBtn.disabled = false;
+    joinSubmitBtn.disabled = false;
   }
 });
 
-// ÉCRAN 2 : Profil
+// CRÉER UNE NOUVELLE SESSION
+createSessionBtn.addEventListener("click", async () => {
+  if (!state.authReady || !state.playerId) {
+    showError(createError, "Connexion en cours, réessaie dans un instant.");
+    return;
+  }
+
+  createSessionBtn.disabled = true;
+  hideError(createError);
+
+  try {
+    let newCode = null;
+
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const candidate = generateSessionCode();
+      const ref = getSalonRef(candidate);
+      const existing = await getDoc(ref);
+      if (!existing.exists()) {
+        newCode = candidate;
+        break;
+      }
+    }
+
+    if (!newCode) {
+      showError(createError, "Impossible de générer un code disponible pour le moment.");
+      return;
+    }
+
+    state.sessionCode = newCode;
+    state.isNewSession = true;
+    state.selectedColor = null;
+    state.players = [];
+    state.game = null;
+    renderCounter([]);
+    startSalonListener(newCode);
+
+    profileCodeDisplay.textContent = newCode;
+    profileModeBadge.textContent = "Nouvelle session";
+    renderColorPicker();
+    showScreen("profile");
+    nameInput.focus();
+  } catch (err) {
+    console.error("Erreur création session :", err);
+    showError(createError, "Impossible de créer la session.");
+  } finally {
+    createSessionBtn.disabled = false;
+  }
+});
+
+// ÉCRAN 2 : Profil (enregistre la session dans Firestore si nouvelle, ou rejoint si active)
 profileForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const cleanName = nameInput.value.trim().slice(0, 20);
@@ -478,6 +571,10 @@ profileForm.addEventListener("submit", async (e) => {
     showError(profileError, "Merci de choisir une couleur valide.");
     return;
   }
+  if (!state.sessionCode || !state.playerId) {
+    showError(profileError, "Session invalide.");
+    return;
+  }
 
   submitProfileBtn.disabled = true;
   hideError(profileError);
@@ -486,7 +583,13 @@ profileForm.addEventListener("submit", async (e) => {
     const salonRef = getSalonRef(state.sessionCode);
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(salonRef);
-      const data = snap.exists() ? snap.data() : null;
+      const exists = snap.exists();
+      const data = exists ? snap.data() : null;
+
+      if (!exists && !state.isNewSession) {
+        throw new Error("NOT_FOUND");
+      }
+
       const existingPlayers = data ? sanitizePlayersList(data.players) : [];
       const filtered = existingPlayers.filter((p) => p.id !== state.playerId);
 
@@ -508,7 +611,7 @@ profileForm.addEventListener("submit", async (e) => {
         eliminated: false
       });
 
-      if (!snap.exists()) {
+      if (!exists) {
         transaction.set(salonRef, {
           code: state.sessionCode,
           players: filtered,
@@ -524,10 +627,13 @@ profileForm.addEventListener("submit", async (e) => {
       }
     });
 
+    state.isNewSession = false;
     renderLobby();
     showScreen("lobby");
   } catch (err) {
-    if (err.message === "IN_PROGRESS") {
+    if (err.message === "NOT_FOUND") {
+      showError(profileError, "Cette session n'existe plus.");
+    } else if (err.message === "IN_PROGRESS") {
       showError(profileError, "La partie vient de démarrer.");
     } else if (err.message === "FULL") {
       showError(profileError, `Limite de ${MAX_PLAYERS} joueurs atteinte.`);
@@ -544,17 +650,33 @@ profileForm.addEventListener("submit", async (e) => {
   }
 });
 
-backToCodeBtn.addEventListener("click", () => {
+backToCodeBtn.addEventListener("click", async () => {
+  const code = state.sessionCode;
+  const wasNew = state.isNewSession;
+
   stopSalonListener();
   state.sessionCode = null;
+  state.isNewSession = false;
   state.selectedColor = null;
   state.players = [];
   state.game = null;
   renderCounter([]);
   showScreen("code");
+
+  if (code && wasNew) {
+    try {
+      const ref = getSalonRef(code);
+      const snap = await getDoc(ref);
+      if (snap.exists() && sanitizePlayersList(snap.data().players).length === 0) {
+        await deleteDoc(ref);
+      }
+    } catch (err) {
+      console.error("Erreur nettoyage session vide :", err);
+    }
+  }
 });
 
-// ÉCRAN 3 : Bouton « Prêt » (lance automatiquement la partie quand tous sont prêts)
+// ÉCRAN 3 : Bouton « Prêt »
 toggleReadyBtn.addEventListener("click", async () => {
   if (!state.sessionCode || !state.playerId) return;
   toggleReadyBtn.disabled = true;
@@ -587,13 +709,14 @@ toggleReadyBtn.addEventListener("click", async () => {
   }
 });
 
-// Quitter le salon ou la partie
+// QUITTER LA SESSION : supprime le document Firestore dès qu'il reste 0 joueur
 async function leaveSession() {
   const code = state.sessionCode;
   const uid = state.playerId;
 
   stopSalonListener();
   state.sessionCode = null;
+  state.isNewSession = false;
   state.selectedColor = null;
   state.players = [];
   state.game = null;
@@ -608,12 +731,18 @@ async function leaveSession() {
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(salonRef);
       if (!snap.exists()) return;
+
       const updated = sanitizePlayersList(snap.data().players).filter((p) => p.id !== uid);
-      transaction.update(salonRef, {
-        players: updated,
-        game: updated.length < MIN_PLAYERS ? null : snap.data().game || null,
-        updatedAt: serverTimestamp()
-      });
+
+      if (updated.length === 0) {
+        transaction.delete(salonRef);
+      } else {
+        transaction.update(salonRef, {
+          players: updated,
+          game: updated.length < MIN_PLAYERS ? null : snap.data().game || null,
+          updatedAt: serverTimestamp()
+        });
+      }
     });
   } catch (err) {
     console.error("Erreur départ session :", err);

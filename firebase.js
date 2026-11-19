@@ -8,6 +8,8 @@ import {
   getFirestore,
   doc,
   getDoc,
+  setDoc,
+  deleteDoc,
   onSnapshot,
   runTransaction,
   serverTimestamp
@@ -45,4 +47,4 @@ export function initAnonymousSession(onUserReady, onAuthError) {
   });
 }
 
-export { getDoc, onSnapshot, runTransaction, serverTimestamp };
+export { getDoc, setDoc, deleteDoc, onSnapshot, runTransaction, serverTimestamp };

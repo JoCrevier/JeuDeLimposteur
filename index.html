@@ -19,37 +19,66 @@
         </div>
       </header>
 
-      <!-- ÉCRAN 1 : CODE À 5 CHIFFRES -->
+      <!-- ÉCRAN 1 : CRÉER OU REJOINDRE UNE SESSION -->
       <section id="screenCode" class="screen active">
-        <form id="codeForm">
+        <div class="mode-switch" role="tablist">
+          <button type="button" class="mode-btn active" id="modeJoinBtn">
+            Rejoindre une session active
+          </button>
+          <button type="button" class="mode-btn" id="modeCreateBtn">
+            Créer une session
+          </button>
+        </div>
+
+        <!-- MODE REJOINDRE -->
+        <form id="joinForm">
           <div class="form-group">
-            <label for="codeInput">Code de session (5 chiffres)</label>
-            <div class="code-row">
-              <input
-                id="codeInput"
-                type="text"
-                inputmode="numeric"
-                maxlength="5"
-                placeholder="00000"
-                autocomplete="off"
-                required
-              />
-              <button type="button" class="btn-secondary" id="randomCodeBtn">
-                Aléatoire
-              </button>
-            </div>
+            <label for="codeInput">Code de session active (5 chiffres)</label>
+            <input
+              id="codeInput"
+              type="text"
+              inputmode="numeric"
+              maxlength="5"
+              placeholder="00000"
+              autocomplete="off"
+              required
+            />
             <p class="helper">
-              Entre un code à 5 chiffres pour rejoindre ou créer une session.
+              Entre le code à 5 chiffres d'une session déjà ouverte.
             </p>
           </div>
 
           <div id="codeError" class="error-msg"></div>
-          <button type="submit" class="btn-primary">Continuer</button>
+          <button type="submit" class="btn-primary" id="joinSubmitBtn">
+            Rejoindre la session
+          </button>
         </form>
+
+        <!-- MODE CRÉER -->
+        <div id="createBox" class="hidden">
+          <div class="form-group">
+            <p class="phase-desc">
+              Génère une nouvelle session avec un code à 5 chiffres. Elle sera automatiquement supprimée du serveur lorsque tout le monde aura quitté.
+            </p>
+          </div>
+
+          <div id="createError" class="error-msg"></div>
+          <button type="button" class="btn-success" id="createSessionBtn" style="width: 100%;">
+            Créer une nouvelle session
+          </button>
+        </div>
       </section>
 
       <!-- ÉCRAN 2 : CHOIX DU NOM ET DE LA COULEUR -->
       <section id="screenProfile" class="screen">
+        <div class="lobby-top" style="margin-bottom: 18px;">
+          <div>
+            <span class="helper">Code de session</span>
+            <div class="session-code-display" id="profileCodeDisplay">-----</div>
+          </div>
+          <span class="helper" id="profileModeBadge">Nouvelle session</span>
+        </div>
+
         <form id="profileForm">
           <div class="form-group">
             <label for="nameInput">Ton nom de joueur</label>
@@ -74,7 +103,7 @@
           <div id="profileError" class="error-msg"></div>
           <div class="actions-bar">
             <button type="button" class="btn-secondary" id="backToCodeBtn">
-              Changer de code
+              Retour
             </button>
             <button type="submit" class="btn-success">Rejoindre le jeu</button>
           </div>
