@@ -157,7 +157,7 @@ export function buildTurnOrder(players) {
   return activeIds;
 }
 
-export function createInitialGameState(players, themeId = DEFAULT_THEME_ID) {
+export function createInitialGameState(players, themeId = DEFAULT_THEME_ID, nowMs = Date.now()) {
   const safeThemeId = normalizeThemeId(themeId);
   const theme = THEMES[safeThemeId];
   const pool = theme.words;
@@ -167,7 +167,7 @@ export function createInitialGameState(players, themeId = DEFAULT_THEME_ID) {
 
   return {
     status: "playing",
-    phase: "write",
+    phase: turnOrder.length > 0 ? "write" : "discuss",
     round: 1,
     themeId: safeThemeId,
     themeLabel: theme.label,
@@ -175,7 +175,7 @@ export function createInitialGameState(players, themeId = DEFAULT_THEME_ID) {
     impostorId: randomImpostor.id,
     turnOrder,
     currentTurnIndex: 0,
-    turnDeadline: Date.now() + TURN_SECONDS * 1000,
+    turnDeadline: turnOrder.length > 0 ? nowMs + TURN_SECONDS * 1000 : null,
     words: {},
     votes: {},
     lastResult: null
@@ -186,7 +186,7 @@ export function advanceWriteTurn(game, nowMs = Date.now()) {
   const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
   const nextIndex = (game.currentTurnIndex || 0) + 1;
 
-  if (nextIndex >= order.length) {
+  if (order.length === 0 || nextIndex >= order.length) {
     return {
       ...game,
       currentTurnIndex: nextIndex,

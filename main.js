@@ -180,7 +180,9 @@ function stopSalonListener() {
 
 function getRemainingTurnSeconds(game) {
   if (!game?.turnDeadline) return TURN_SECONDS;
-  return Math.max(0, Math.ceil((game.turnDeadline - Date.now()) / 1000));
+  const rawSeconds = Math.ceil((game.turnDeadline - Date.now()) / 1000);
+  // Protège contre un léger décalage d'horloge entre appareils (ex. horloge en retard)
+  return Math.max(0, Math.min(TURN_SECONDS, rawSeconds));
 }
 
 function updateTurnTimerDisplay(game) {
@@ -203,6 +205,10 @@ function updateTurnTimerDisplay(game) {
 }
 
 function startTurnTimer(game) {
+  const turnKey = `${game?.round || 1}-${game?.currentTurnIndex || 0}`;
+  if (state.timeoutTriggeredForTurn && !state.timeoutTriggeredForTurn.startsWith(turnKey)) {
+    state.timeoutTriggeredForTurn = null;
+  }
   stopTurnTimer();
   updateTurnTimerDisplay(game);
   state.turnTimerInterval = setInterval(() => {
@@ -447,6 +453,8 @@ function renderGame() {
     if (amEliminated) {
       writeInstruction.textContent = "Tu as été éliminé. Observe les tours des joueurs restants.";
       wordForm.classList.add("hidden");
+      wordInput.disabled = true;
+      submitWordBtn.disabled = true;
     } else if (isMyTurn) {
       wordForm.classList.remove("hidden");
       wordInput.disabled = false;
@@ -454,9 +462,13 @@ function renderGame() {
       writeInstruction.textContent = amImpostor
         ? `Thème « ${themeLabel} » : tu ne vois pas le mot secret. Devinez-le à partir des indices et écris un mot en moins de ${TURN_SECONDS}s !`
         : `Le mot secret est « ${game.secretWord} » (thème ${themeLabel}). Écris un indice en moins de ${TURN_SECONDS}s :`;
-      wordInput.focus();
+      if (document.activeElement !== wordInput) {
+        wordInput.focus();
+      }
     } else {
       wordForm.classList.add("hidden");
+      wordInput.disabled = true;
+      submitWordBtn.disabled = true;
       writeInstruction.textContent = amImpostor
         ? `Attends que ${activeTurnPlayer?.name || "le joueur"} écrive son mot pour t'aider à deviner le mot secret...`
         : `Attends que ${activeTurnPlayer?.name || "le joueur"} écrive son mot (max ${TURN_SECONDS}s).`;
@@ -968,7 +980,7 @@ toggleReadyBtn.addEventListener("click", async () => {
 
       const themeId = normalizeThemeId(data.themeId);
       const startNow = areAllPlayersReady(updatedPlayers);
-      const nextGame = startNow ? createInitialGameState(updatedPlayers, themeId) : null;
+      const nextGame = startNow ? createInitialGameState(updatedPlayers, themeId, Date.now()) : null;
 
       transaction.update(salonRef, {
         players: updatedPlayers,
