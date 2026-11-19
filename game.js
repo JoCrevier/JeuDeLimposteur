@@ -21,28 +21,96 @@ export const PALETTE = [
 
 export const ALLOWED_HEX_SET = new Set(PALETTE.map((c) => c.hex));
 
-const SECRET_WORDS = [
-  "Voilier",
-  "Volcan",
-  "Boussole",
-  "Pyramide",
-  "Télescope",
-  "Igloo",
-  "Parachute",
-  "Sous-marin",
-  "Phare",
-  "Labyrinthe",
-  "Glacier",
-  "Cathédrale",
-  "Montgolfière",
-  "Éclipse",
-  "Astéroïde",
-  "Cascades",
-  "Forteresse",
-  "Squelette",
-  "Horloge",
-  "Bibliothèque"
-];
+// 5 thèmes maximum, 10 mots par thème
+export const THEMES = {
+  espace: {
+    id: "espace",
+    label: "Espace",
+    words: [
+      "Télescope",
+      "Éclipse",
+      "Astéroïde",
+      "Supernova",
+      "Satellite",
+      "Cratère",
+      "Cosmonaute",
+      "Constellation",
+      "Comète",
+      "Gravité"
+    ]
+  },
+  ocean: {
+    id: "ocean",
+    label: "Océan",
+    words: [
+      "Voilier",
+      "Sous-marin",
+      "Phare",
+      "Glacier",
+      "Récif",
+      "Abysses",
+      "Harpon",
+      "Archipel",
+      "Mousson",
+      "Boussole"
+    ]
+  },
+  medieval: {
+    id: "medieval",
+    label: "Médiéval",
+    words: [
+      "Forteresse",
+      "Labyrinthe",
+      "Cathédrale",
+      "Blason",
+      "Pont-levis",
+      "Catapulte",
+      "Chevalier",
+      "Donjon",
+      "Grimoire",
+      "Tournoi"
+    ]
+  },
+  gastronomie: {
+    id: "gastronomie",
+    label: "Gastronomie",
+    words: [
+      "Croissant",
+      "Fondue",
+      "Truffe",
+      "Macaron",
+      "Épice",
+      "Levain",
+      "Cannelle",
+      "Bistro",
+      "Saffran",
+      "Tiramisu"
+    ]
+  },
+  cinema: {
+    id: "cinema",
+    label: "Cinéma",
+    words: [
+      "Scénario",
+      "Projecteur",
+      "Doublage",
+      "Générique",
+      "Clap",
+      "Caméra",
+      "Cascades",
+      "Bande-son",
+      "Caméo",
+      "Avant-première"
+    ]
+  }
+};
+
+export const THEME_LIST = Object.values(THEMES).slice(0, 5);
+export const DEFAULT_THEME_ID = THEME_LIST[0].id;
+
+export function normalizeThemeId(themeId) {
+  return typeof themeId === "string" && themeId in THEMES ? themeId : DEFAULT_THEME_ID;
+}
 
 export function generateSessionCode() {
   return String(Math.floor(10000 + Math.random() * 90000));
@@ -69,6 +137,13 @@ export function sanitizePlayersList(rawPlayers) {
     }));
 }
 
+export function resolveHostId(rawHostId, players) {
+  if (typeof rawHostId === "string" && players.some((p) => p.id === rawHostId)) {
+    return rawHostId;
+  }
+  return players[0]?.id || null;
+}
+
 export function areAllPlayersReady(players) {
   return players.length >= MIN_PLAYERS && players.every((p) => p.ready === true);
 }
@@ -82,8 +157,11 @@ export function buildTurnOrder(players) {
   return activeIds;
 }
 
-export function createInitialGameState(players) {
-  const randomWord = SECRET_WORDS[Math.floor(Math.random() * SECRET_WORDS.length)];
+export function createInitialGameState(players, themeId = DEFAULT_THEME_ID) {
+  const safeThemeId = normalizeThemeId(themeId);
+  const theme = THEMES[safeThemeId];
+  const pool = theme.words;
+  const randomWord = pool[Math.floor(Math.random() * pool.length)];
   const randomImpostor = players[Math.floor(Math.random() * players.length)];
   const turnOrder = buildTurnOrder(players);
 
@@ -91,6 +169,8 @@ export function createInitialGameState(players) {
     status: "playing",
     phase: "write",
     round: 1,
+    themeId: safeThemeId,
+    themeLabel: theme.label,
     secretWord: randomWord,
     impostorId: randomImpostor.id,
     turnOrder,

@@ -15,8 +15,13 @@ import {
   TURN_SECONDS,
   PALETTE,
   ALLOWED_HEX_SET,
+  THEMES,
+  THEME_LIST,
+  DEFAULT_THEME_ID,
+  normalizeThemeId,
   generateSessionCode,
   sanitizePlayersList,
+  resolveHostId,
   areAllPlayersReady,
   buildTurnOrder,
   createInitialGameState,
@@ -27,6 +32,8 @@ import {
 const state = {
   sessionCode: null,
   playerId: null,
+  hostId: null,
+  selectedThemeId: DEFAULT_THEME_ID,
   selectedColor: null,
   players: [],
   game: null,
@@ -65,12 +72,17 @@ const colorsGrid = document.getElementById("colorsGrid");
 const backToCodeBtn = document.getElementById("backToCodeBtn");
 const submitProfileBtn = profileForm.querySelector('button[type="submit"]');
 
-// Écran 3 : Salon
+// Écran 3 : Salon & Hôte
 const activeCodeDisplay = document.getElementById("activeCodeDisplay");
 const minPlayersNotice = document.getElementById("minPlayersNotice");
+const themeGrid = document.getElementById("themeGrid");
+const themeHint = document.getElementById("themeHint");
 const playersGrid = document.getElementById("playersGrid");
 const playerCountText = document.getElementById("playerCountText");
 const statusDot = document.getElementById("statusDot");
+const hostControls = document.getElementById("hostControls");
+const kickAllBtn = document.getElementById("kickAllBtn");
+const deleteSessionBtn = document.getElementById("deleteSessionBtn");
 const leaveBtn = document.getElementById("leaveBtn");
 const toggleReadyBtn = document.getElementById("toggleReadyBtn");
 
@@ -100,7 +112,7 @@ const resultBanner = document.getElementById("resultBanner");
 const gameLeaveBtn = document.getElementById("gameLeaveBtn");
 const nextRoundBtn = document.getElementById("nextRoundBtn");
 
-// Barre de tour actif + chronomètre insérée dynamiquement dans phaseWriteView
+// Barre de tour actif + chronomètre
 const turnBox = document.createElement("div");
 turnBox.className = "turn-box";
 const turnStatusText = document.createElement("span");
@@ -113,6 +125,27 @@ phaseWriteView.insertBefore(turnBox, writeInstruction);
 
 joinSubmitBtn.disabled = true;
 createSessionBtn.disabled = true;
+
+function isCurrentUserHost() {
+  return Boolean(state.playerId && state.hostId && state.playerId === state.hostId);
+}
+
+function resetLocalSessionState(noticeMessage = "") {
+  stopSalonListener();
+  state.sessionCode = null;
+  state.hostId = null;
+  state.selectedThemeId = DEFAULT_THEME_ID;
+  state.selectedColor = null;
+  state.players = [];
+  state.game = null;
+  state.isNewSession = false;
+  state.timeoutTriggeredForTurn = null;
+  renderCounter([]);
+  showScreen("code");
+  if (noticeMessage) {
+    showError(codeError, noticeMessage);
+  }
+}
 
 function showScreen(name) {
   Object.values(screens).forEach((s) => s.classList.remove("active"));
@@ -235,6 +268,52 @@ function renderCounter(players) {
   }
 }
 
+function renderThemeSelector() {
+  const canPickTheme = isCurrentUserHost();
+  const activeTheme = THEMES[normalizeThemeId(state.selectedThemeId)];
+
+  themeHint.textContent = canPickTheme
+    ? `Thème actif : ${activeTheme.label} (clique pour changer)`
+    : `Thème choisi par l'hôte : ${activeTheme.label}`;
+
+  themeGrid.innerHTML = "";
+  THEME_LIST.forEach((theme) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "theme-btn" + (theme.id === state.selectedThemeId ? " active" : "");
+    btn.textContent = theme.label;
+    btn.disabled = !canPickTheme;
+
+    btn.addEventListener("click", () => selectSessionTheme(theme.id));
+    themeGrid.appendChild(btn);
+  });
+}
+
+async function selectSessionTheme(themeId) {
+  if (!isCurrentUserHost() || !state.sessionCode) return;
+  const safeThemeId = normalizeThemeId(themeId);
+  state.selectedThemeId = safeThemeId;
+  renderThemeSelector();
+
+  try {
+    const salonRef = getSalonRef(state.sessionCode);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const currentHost = resolveHostId(data.hostId, sanitizePlayersList(data.players));
+      if (currentHost !== state.playerId) return;
+
+      transaction.update(salonRef, {
+        themeId: safeThemeId,
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (err) {
+    console.error("Erreur sélection thème :", err);
+  }
+}
+
 function renderColorPicker() {
   const takenColors = new Set(state.players.map((p) => p.color));
   colorsGrid.innerHTML = "";
@@ -268,6 +347,11 @@ function renderColorPicker() {
 function renderLobby() {
   activeCodeDisplay.textContent = state.sessionCode;
   renderCounter(state.players);
+  renderThemeSelector();
+
+  const amHost = isCurrentUserHost();
+  hostControls.classList.toggle("hidden", !amHost);
+  kickAllBtn.disabled = state.players.length <= 1;
 
   const me = state.players.find((p) => p.id === state.playerId);
   if (me) {
@@ -293,9 +377,13 @@ function renderLobby() {
     nameEl.className = "player-name";
     nameEl.textContent = p.name;
 
+    const tags = [];
+    if (p.id === state.hostId) tags.push("Hôte ★");
+    tags.push(p.id === state.playerId ? "Toi" : "Connecté");
+
     const tagEl = document.createElement("div");
     tagEl.className = "player-tag";
-    tagEl.textContent = p.id === state.playerId ? "Toi" : "Connecté";
+    tagEl.textContent = tags.join(" • ");
 
     info.append(nameEl, tagEl);
     left.append(avatar, info);
@@ -314,7 +402,8 @@ function renderGame() {
   if (!game) return;
 
   renderCounter(state.players);
-  roundDisplay.textContent = `Manche ${game.round || 1}`;
+  const themeLabel = game.themeLabel || THEMES[normalizeThemeId(state.selectedThemeId)].label;
+  roundDisplay.textContent = `Manche ${game.round || 1} • Thème : ${themeLabel}`;
 
   const me = state.players.find((p) => p.id === state.playerId);
   const amImpostor = game.impostorId === state.playerId;
@@ -364,8 +453,8 @@ function renderGame() {
       wordInput.disabled = false;
       submitWordBtn.disabled = false;
       writeInstruction.textContent = amImpostor
-        ? `Tu ne connais pas le mot secret. Devinez-le à partir des indices et écris un mot en moins de ${TURN_SECONDS}s !`
-        : `Le mot secret est « ${game.secretWord} ». Écris un indice en moins de ${TURN_SECONDS}s :`;
+        ? `Thème « ${themeLabel} » : tu ne vois pas le mot secret. Devinez-le à partir des indices et écris un mot en moins de ${TURN_SECONDS}s !`
+        : `Le mot secret est « ${game.secretWord} » (thème ${themeLabel}). Écris un indice en moins de ${TURN_SECONDS}s :`;
       wordInput.focus();
     } else {
       wordForm.classList.add("hidden");
@@ -480,22 +569,28 @@ function startSalonListener(code) {
     getSalonRef(code),
     (snap) => {
       if (!snap.exists()) {
-        state.players = [];
-        state.game = null;
-        renderCounter([]);
-        if (screens.lobby.classList.contains("active") || screens.game.classList.contains("active")) {
-          stopSalonListener();
-          state.sessionCode = null;
-          showScreen("code");
-        }
+        const wasActive =
+          screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
+        resetLocalSessionState(wasActive ? "La session a été supprimée par l'hôte." : "");
         return;
       }
 
       const data = snap.data();
+      const hadJoinedRoom =
+        screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
+
       state.players = sanitizePlayersList(data.players);
+      state.hostId = resolveHostId(data.hostId, state.players);
+      state.selectedThemeId = normalizeThemeId(data.themeId);
       state.game = data.game || null;
 
       const meInRoom = state.players.some((p) => p.id === state.playerId);
+
+      // Si l'utilisateur était dans le salon/jeu et a été expulsé par l'hôte
+      if (hadJoinedRoom && !meInRoom) {
+        resetLocalSessionState("Tu as été expulsé de la session par l'hôte.");
+        return;
+      }
 
       if (meInRoom && state.game && state.game.status === "playing") {
         showScreen("game");
@@ -608,6 +703,8 @@ joinForm.addEventListener("submit", async (e) => {
     }
 
     state.sessionCode = code;
+    state.hostId = resolveHostId(data.hostId, currentPlayers);
+    state.selectedThemeId = normalizeThemeId(data.themeId);
     state.isNewSession = false;
     state.selectedColor = null;
     state.players = currentPlayers;
@@ -665,6 +762,8 @@ createSessionBtn.addEventListener("click", async () => {
     }
 
     state.sessionCode = newCode;
+    state.hostId = state.playerId;
+    state.selectedThemeId = DEFAULT_THEME_ID;
     state.isNewSession = true;
     state.selectedColor = null;
     state.players = [];
@@ -739,9 +838,15 @@ profileForm.addEventListener("submit", async (e) => {
         eliminated: false
       });
 
+      const resolvedHost = exists
+        ? resolveHostId(data.hostId, filtered) || state.playerId
+        : state.playerId;
+
       if (!exists) {
         transaction.set(salonRef, {
           code: state.sessionCode,
+          hostId: resolvedHost,
+          themeId: normalizeThemeId(state.selectedThemeId),
           players: filtered,
           game: null,
           createdAt: serverTimestamp(),
@@ -749,6 +854,7 @@ profileForm.addEventListener("submit", async (e) => {
         });
       } else {
         transaction.update(salonRef, {
+          hostId: resolvedHost,
           players: filtered,
           updatedAt: serverTimestamp()
         });
@@ -782,14 +888,7 @@ backToCodeBtn.addEventListener("click", async () => {
   const code = state.sessionCode;
   const wasNew = state.isNewSession;
 
-  stopSalonListener();
-  state.sessionCode = null;
-  state.isNewSession = false;
-  state.selectedColor = null;
-  state.players = [];
-  state.game = null;
-  renderCounter([]);
-  showScreen("code");
+  resetLocalSessionState();
 
   if (code && wasNew) {
     try {
@@ -801,6 +900,65 @@ backToCodeBtn.addEventListener("click", async () => {
     } catch (err) {
       console.error("Erreur nettoyage session vide :", err);
     }
+  }
+});
+
+// CONTRÔLE HÔTE : Expulser tous les autres joueurs de la session
+kickAllBtn.addEventListener("click", async () => {
+  if (!isCurrentUserHost() || !state.sessionCode) return;
+  kickAllBtn.disabled = true;
+
+  try {
+    const salonRef = getSalonRef(state.sessionCode);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const players = sanitizePlayersList(data.players);
+      const currentHost = resolveHostId(data.hostId, players);
+      if (currentHost !== state.playerId) return;
+
+      const hostOnly = players
+        .filter((p) => p.id === state.playerId)
+        .map((p) => ({ ...p, ready: false, eliminated: false }));
+
+      transaction.update(salonRef, {
+        hostId: state.playerId,
+        players: hostOnly,
+        game: null,
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (err) {
+    console.error("Erreur expulsion joueurs :", err);
+  } finally {
+    kickAllBtn.disabled = false;
+  }
+});
+
+// CONTRÔLE HÔTE : Supprimer définitivement la session
+deleteSessionBtn.addEventListener("click", async () => {
+  if (!isCurrentUserHost() || !state.sessionCode) return;
+  deleteSessionBtn.disabled = true;
+  const code = state.sessionCode;
+
+  try {
+    const salonRef = getSalonRef(code);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const players = sanitizePlayersList(data.players);
+      const currentHost = resolveHostId(data.hostId, players);
+      if (currentHost !== state.playerId) return;
+
+      transaction.delete(salonRef);
+    });
+    resetLocalSessionState("Session supprimée.");
+  } catch (err) {
+    console.error("Erreur suppression session :", err);
+  } finally {
+    deleteSessionBtn.disabled = false;
   }
 });
 
@@ -821,8 +979,9 @@ toggleReadyBtn.addEventListener("click", async () => {
         p.id === state.playerId ? { ...p, ready: !p.ready, eliminated: false } : p
       );
 
+      const themeId = normalizeThemeId(data.themeId);
       const startNow = areAllPlayersReady(updatedPlayers);
-      const nextGame = startNow ? createInitialGameState(updatedPlayers) : null;
+      const nextGame = startNow ? createInitialGameState(updatedPlayers, themeId) : null;
 
       transaction.update(salonRef, {
         players: updatedPlayers,
@@ -837,20 +996,13 @@ toggleReadyBtn.addEventListener("click", async () => {
   }
 });
 
-// QUITTER LA SESSION
+// QUITTER LA SESSION (réassigne l'hôte si l'hôte part, ou supprime si vide)
 async function leaveSession() {
   const code = state.sessionCode;
   const uid = state.playerId;
 
-  stopSalonListener();
-  state.sessionCode = null;
-  state.isNewSession = false;
-  state.selectedColor = null;
-  state.players = [];
-  state.game = null;
   nameInput.value = "";
-  renderCounter([]);
-  showScreen("code");
+  resetLocalSessionState();
 
   if (!code || !uid) return;
 
@@ -860,14 +1012,18 @@ async function leaveSession() {
       const snap = await transaction.get(salonRef);
       if (!snap.exists()) return;
 
-      const updated = sanitizePlayersList(snap.data().players).filter((p) => p.id !== uid);
+      const data = snap.data();
+      const updated = sanitizePlayersList(data.players).filter((p) => p.id !== uid);
 
       if (updated.length === 0) {
         transaction.delete(salonRef);
       } else {
+        const nextHost =
+          data.hostId === uid ? updated[0].id : resolveHostId(data.hostId, updated);
         transaction.update(salonRef, {
+          hostId: nextHost,
           players: updated,
-          game: updated.length < MIN_PLAYERS ? null : snap.data().game || null,
+          game: updated.length < MIN_PLAYERS ? null : data.game || null,
           updatedAt: serverTimestamp()
         });
       }
