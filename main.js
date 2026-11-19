@@ -3,6 +3,7 @@ import {
   getSalonRef,
   initAnonymousSession,
   getDoc,
+  setDoc,
   deleteDoc,
   onSnapshot,
   runTransaction,
@@ -409,7 +410,6 @@ function renderGame() {
   const amImpostor = game.impostorId === state.playerId;
   const amEliminated = Boolean(me?.eliminated);
 
-  // Chaque joueur sauf l'imposteur voit le mot secret commun
   if (amImpostor) {
     roleBanner.className = "role-card impostor";
     roleBanner.textContent = "Rôle : IMPOSTEUR • Mot secret caché — devine-le !";
@@ -430,7 +430,6 @@ function renderGame() {
   const activeTurnPlayer = state.players.find((p) => p.id === activeTurnPlayerId);
   const isMyTurn = activeTurnPlayerId === state.playerId && !amEliminated;
 
-  // PHASE 1 : ÉCRITURE D'UN MOT (1 joueur à la fois, 20 secondes max)
   if (game.phase === "write") {
     phaseTitle.textContent = `Phase 1 / 3 : Écriture (${Math.min(currentTurnIdx + 1, order.length)} / ${order.length})`;
     phaseWriteView.classList.remove("hidden");
@@ -468,7 +467,6 @@ function renderGame() {
     stopTurnTimer();
   }
 
-  // PHASE 2 : DÉLIBÉRATION
   if (game.phase === "discuss") {
     phaseTitle.textContent = "Phase 2 / 3 : Délibération";
     phaseDiscussView.classList.remove("hidden");
@@ -507,7 +505,6 @@ function renderGame() {
     goToVoteBtn.disabled = amEliminated;
   }
 
-  // PHASE 3 : VOTE
   if (game.phase === "vote") {
     phaseTitle.textContent = "Phase 3 / 3 : Vote d'exclusion";
     phaseVoteView.classList.remove("hidden");
@@ -552,7 +549,6 @@ function renderGame() {
     voteProgressText.textContent = `${votedCount} / ${activePlayers.length} joueurs ont voté.`;
   }
 
-  // RÉSULTAT DE MANCHE OU FIN DE PARTIE
   if (game.phase === "result" || game.phase === "finished") {
     phaseTitle.textContent = game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
     phaseResultView.classList.remove("hidden");
@@ -586,7 +582,6 @@ function startSalonListener(code) {
 
       const meInRoom = state.players.some((p) => p.id === state.playerId);
 
-      // Si l'utilisateur était dans le salon/jeu et a été expulsé par l'hôte
       if (hadJoinedRoom && !meInRoom) {
         resetLocalSessionState("Tu as été expulsé de la session par l'hôte.");
         return;
@@ -618,7 +613,6 @@ function startSalonListener(code) {
   );
 }
 
-// Authentification anonyme au démarrage
 initAnonymousSession(
   (uid) => {
     state.playerId = uid;
@@ -626,7 +620,8 @@ initAnonymousSession(
     joinSubmitBtn.disabled = false;
     createSessionBtn.disabled = false;
   },
-  () => {
+  (err) => {
+    console.error("Erreur initialisation auth :", err);
     showError(codeError, "Impossible d'initialiser la session sécurisée.");
     showError(createError, "Impossible d'initialiser la session sécurisée.");
   }
@@ -655,7 +650,6 @@ codeInput.addEventListener("input", () => {
   hideError(codeError);
 });
 
-// REJOINDRE UNE SESSION ACTIVE
 joinForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   if (!state.authReady || !state.playerId) {
@@ -727,13 +721,12 @@ joinForm.addEventListener("submit", async (e) => {
     }
   } catch (err) {
     console.error("Erreur accès session :", err);
-    showError(codeError, "Erreur de connexion à la base de données.");
+    showError(codeError, `Erreur Firestore (${err?.code || "connexion"}).`);
   } finally {
     joinSubmitBtn.disabled = false;
   }
 });
 
-// CRÉER UNE NOUVELLE SESSION
 createSessionBtn.addEventListener("click", async () => {
   if (!state.authReady || !state.playerId) {
     showError(createError, "Connexion en cours, réessaie dans un instant.");
@@ -778,13 +771,12 @@ createSessionBtn.addEventListener("click", async () => {
     nameInput.focus();
   } catch (err) {
     console.error("Erreur création session :", err);
-    showError(createError, "Impossible de créer la session.");
+    showError(createError, `Impossible de créer la session (${err?.code || "erreur"}).`);
   } finally {
     createSessionBtn.disabled = false;
   }
 });
 
-// ÉCRAN 2 : Profil
 profileForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const cleanName = nameInput.value.trim().slice(0, 20);
@@ -806,18 +798,44 @@ profileForm.addEventListener("submit", async (e) => {
   submitProfileBtn.disabled = true;
   hideError(profileError);
 
+  const newPlayer = {
+    id: state.playerId,
+    name: cleanName,
+    color: chosenColor,
+    ready: false,
+    eliminated: false
+  };
+
   try {
     const salonRef = getSalonRef(state.sessionCode);
+
+    if (state.isNewSession) {
+      const initialDoc = {
+        code: state.sessionCode,
+        hostId: state.playerId,
+        themeId: normalizeThemeId(state.selectedThemeId),
+        players: [newPlayer],
+        game: null,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+      await setDoc(salonRef, initialDoc);
+      state.isNewSession = false;
+      state.hostId = state.playerId;
+      state.players = [newPlayer];
+      renderLobby();
+      showScreen("lobby");
+      return;
+    }
+
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(salonRef);
-      const exists = snap.exists();
-      const data = exists ? snap.data() : null;
-
-      if (!exists && !state.isNewSession) {
+      if (!snap.exists()) {
         throw new Error("NOT_FOUND");
       }
 
-      const existingPlayers = data ? sanitizePlayersList(data.players) : [];
+      const data = snap.data();
+      const existingPlayers = sanitizePlayersList(data.players);
       const filtered = existingPlayers.filter((p) => p.id !== state.playerId);
 
       if (data?.game?.status === "playing") {
@@ -830,38 +848,16 @@ profileForm.addEventListener("submit", async (e) => {
         throw new Error("COLOR_TAKEN");
       }
 
-      filtered.push({
-        id: state.playerId,
-        name: cleanName,
-        color: chosenColor,
-        ready: false,
-        eliminated: false
+      filtered.push(newPlayer);
+      const resolvedHost = resolveHostId(data.hostId, filtered) || state.playerId;
+
+      transaction.update(salonRef, {
+        hostId: resolvedHost,
+        players: filtered,
+        updatedAt: serverTimestamp()
       });
-
-      const resolvedHost = exists
-        ? resolveHostId(data.hostId, filtered) || state.playerId
-        : state.playerId;
-
-      if (!exists) {
-        transaction.set(salonRef, {
-          code: state.sessionCode,
-          hostId: resolvedHost,
-          themeId: normalizeThemeId(state.selectedThemeId),
-          players: filtered,
-          game: null,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-      } else {
-        transaction.update(salonRef, {
-          hostId: resolvedHost,
-          players: filtered,
-          updatedAt: serverTimestamp()
-        });
-      }
     });
 
-    state.isNewSession = false;
     renderLobby();
     showScreen("lobby");
   } catch (err) {
@@ -877,7 +873,7 @@ profileForm.addEventListener("submit", async (e) => {
       showError(profileError, "Cette couleur vient d'être prise, choisis-en une autre.");
     } else {
       console.error("Erreur ajout joueur :", err);
-      showError(profileError, "Impossible de rejoindre la session.");
+      showError(profileError, `Impossible de rejoindre la session (${err?.code || "erreur"}).`);
     }
   } finally {
     submitProfileBtn.disabled = false;
@@ -903,7 +899,6 @@ backToCodeBtn.addEventListener("click", async () => {
   }
 });
 
-// CONTRÔLE HÔTE : Expulser tous les autres joueurs de la session
 kickAllBtn.addEventListener("click", async () => {
   if (!isCurrentUserHost() || !state.sessionCode) return;
   kickAllBtn.disabled = true;
@@ -936,7 +931,6 @@ kickAllBtn.addEventListener("click", async () => {
   }
 });
 
-// CONTRÔLE HÔTE : Supprimer définitivement la session
 deleteSessionBtn.addEventListener("click", async () => {
   if (!isCurrentUserHost() || !state.sessionCode) return;
   deleteSessionBtn.disabled = true;
@@ -944,16 +938,7 @@ deleteSessionBtn.addEventListener("click", async () => {
 
   try {
     const salonRef = getSalonRef(code);
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(salonRef);
-      if (!snap.exists()) return;
-      const data = snap.data();
-      const players = sanitizePlayersList(data.players);
-      const currentHost = resolveHostId(data.hostId, players);
-      if (currentHost !== state.playerId) return;
-
-      transaction.delete(salonRef);
-    });
+    await deleteDoc(salonRef);
     resetLocalSessionState("Session supprimée.");
   } catch (err) {
     console.error("Erreur suppression session :", err);
@@ -962,7 +947,6 @@ deleteSessionBtn.addEventListener("click", async () => {
   }
 });
 
-// ÉCRAN 3 : Bouton « Prêt »
 toggleReadyBtn.addEventListener("click", async () => {
   if (!state.sessionCode || !state.playerId) return;
   toggleReadyBtn.disabled = true;
@@ -996,7 +980,6 @@ toggleReadyBtn.addEventListener("click", async () => {
   }
 });
 
-// QUITTER LA SESSION (réassigne l'hôte si l'hôte part, ou supprime si vide)
 async function leaveSession() {
   const code = state.sessionCode;
   const uid = state.playerId;
@@ -1036,7 +1019,6 @@ async function leaveSession() {
 leaveBtn.addEventListener("click", leaveSession);
 gameLeaveBtn.addEventListener("click", leaveSession);
 
-// ÉCRAN 4 — PHASE 1 : Soumettre son mot (à son tour, avant la fin des 20s)
 wordForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const word = wordInput.value.trim().slice(0, 30);
@@ -1095,7 +1077,6 @@ wordForm.addEventListener("submit", async (e) => {
   }
 });
 
-// ÉCRAN 4 — PHASE 2 -> PHASE 3 : Passer au vote
 goToVoteBtn.addEventListener("click", async () => {
   if (!state.sessionCode || !state.playerId) return;
   goToVoteBtn.disabled = true;
@@ -1124,7 +1105,6 @@ goToVoteBtn.addEventListener("click", async () => {
   }
 });
 
-// ÉCRAN 4 — PHASE 3 : Voter pour éliminer un joueur
 async function castVote(targetId) {
   if (!state.sessionCode || !state.playerId || targetId === state.playerId) return;
 
@@ -1174,7 +1154,6 @@ async function castVote(targetId) {
   }
 }
 
-// ÉCRAN 4 — RÉSULTAT : Manche suivante ou retour au salon
 nextRoundBtn.addEventListener("click", async () => {
   if (!state.sessionCode) return;
   nextRoundBtn.disabled = true;
