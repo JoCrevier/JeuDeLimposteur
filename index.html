@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Salon de Jeu — Connexion par Code</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-2: #273549;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-hover: #0ea5e9;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --border: rgba(148, 163, 184, 0.16);
+      --radius: 14px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: radial-gradient(circle at top, #172554 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      line-height: 1.5;
+    }
+
+    .app {
+      width: 100%;
+      max-width: 780px;
+      background: rgba(30, 41, 59, 0.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 {
+      font-size: 1.45rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--warning);
+    }
+
+    .dot.ready {
+      background: var(--success);
+    }
+
+    .screen {
+      display: none;
+      animation: fadeIn 0.2s ease;
+    }
+
+    .screen.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #e2e8f0;
+    }
+
+    .code-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-size: 1rem;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    input#codeInput {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: 0.35em;
+      text-align: center;
+      font-variant-numeric: tabular-nums;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 10px;
+      padding: 12px 18px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      transition: transform 0.1s ease, background-color 0.15s ease, opacity 0.15s ease;
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #082f49;
+      width: 100%;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn-secondary {
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: #334155;
+    }
+
+    .btn-success {
+      background: var(--success);
+      color: #052e16;
+    }
+
+    .btn-danger {
+      background: rgba(239, 68, 68, 0.15);
+      color: #fca5a5;
+      border: 1px solid rgba(239, 68, 68, 0.35);
+    }
+
+    .error-msg {
+      color: #fca5a5;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .error-msg.visible {
+      display: block;
+    }
+
+    .colors-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
+      gap: 10px;
+    }
+
+    .color-btn {
+      height: 44px;
+      padding: 0;
+      border-radius: 10px;
+      border: 2px solid transparent;
+      position: relative;
+    }
+
+    .color-btn.selected {
+      border-color: #ffffff;
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+    }
+
+    .color-btn.taken {
+      opacity: 0.25;
+      cursor: not-allowed;
+    }
+
+    .color-btn.taken::after {
+      content: "×";
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #fff;
+      font-weight: 800;
+      font-size: 1.1rem;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+    }
+
+    .lobby-top {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: var(--surface-2);
+      padding: 14px 16px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      border: 1px solid var(--border);
+    }
+
+    .players-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 12px;
+      margin-bottom: 22px;
+    }
+
+    .player-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      display: grid;
+      place-items: center;
+      font-weight: 700;
+      color: #0f172a;
+      text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+    }
+
+    .player-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      word-break: break-word;
+    }
+
+    .player-tag {
+      font-size: 0.75rem;
+      color: var(--muted);
+    }
+
+    .actions-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .helper {
+      font-size: 0.82rem;
+      color: var(--muted);
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div>
+        <h1>Arène de Jeu</h1>
+        <p class="subtitle">4 joueurs minimum • 12 joueurs maximum</p>
+      </div>
+      <div class="badge" id="statusBadge">
+        <span class="dot" id="statusDot"></span>
+        <span id="playerCountText">0 / 12 joueurs</span>
+      </div>
+    </header>
+
+    <!-- ÉCRAN 1 : CODE À 5 CHIFFRES -->
+    <section id="screenCode" class="screen active">
+      <form id="codeForm">
+        <div class="form-group">
+          <label for="codeInput">Code de session (5 chiffres)</label>
+          <div class="code-row">
+            <input
+              id="codeInput"
+              type="text"
+              inputmode="numeric"
+              maxlength="5"
+              placeholder="00000"
+              autocomplete="off"
+              required
+            />
+            <button type="button" class="btn-secondary" id="randomCodeBtn">Aléatoire</button>
+          </div>
+          <p class="helper">Entre un code à 5 chiffres pour rejoindre ou créer une session.</p>
+        </div>
+
+        <div id="codeError" class="error-msg"></div>
+        <button type="submit" class="btn-primary">Continuer</button>
+      </form>
+    </section>
+
+    <!-- ÉCRAN 2 : CHOIX DU NOM ET DE LA COULEUR -->
+    <section id="screenProfile" class="screen">
+      <form id="profileForm">
+        <div class="form-group">
+          <label for="nameInput">Ton nom de joueur</label>
+          <input
+            id="nameInput"
+            type="text"
+            maxlength="20"
+            placeholder="Ex. Alex, Nova, Léo..."
+            autocomplete="off"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label>Choisis ta couleur</label>
+          <div class="colors-grid" id="colorsGrid"></div>
+          <p class="helper">Les couleurs barrées sont déjà prises dans cette session.</p>
+        </div>
+
+        <div id="profileError" class="error-msg"></div>
+        <div class="actions-bar">
+          <button type="button" class="btn-secondary" id="backToCodeBtn">Changer de code</button>
+          <button type="submit" class="btn-success">Rejoindre le jeu</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- ÉCRAN 3 : SALLE DE JEU -->
+    <section id="screenLobby" class="screen">
+      <div class="lobby-top">
+        <div>
+          <span class="helper">Session active</span>
+          <div style="font-size: 1.2rem; font-weight: 700; letter-spacing: 0.15em;" id="activeCodeDisplay">-----</div>
+        </div>
+        <div id="minPlayersNotice" class="helper" style="margin: 0; font-size: 0.9rem;"></div>
+      </div>
+
+      <div class="players-grid" id="playersGrid"></div>
+
+      <div class="actions-bar">
+        <button type="button" class="btn-danger" id="leaveBtn">Quitter la session</button>
+        <button type="button" class="btn-success" id="startGameBtn" disabled>Lancer la partie</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const MIN_PLAYERS = 4;
+    const MAX_PLAYERS = 12;
+    const PALETTE = [
+      { name: "Rouge", hex: "#ef4444" },
+      { name: "Orange", hex: "#f97316" },
+      { name: "Ambre", hex: "#f59e0b" },
+      { name: "Citron", hex: "#84cc16" },
+      { name: "Émeraude", hex: "#10b981" },
+      { name: "Cyan", hex: "#06b6d4" },
+      { name: "Bleu", hex: "#3b82f6" },
+      { name: "Indigo", hex: "#6366f1" },
+      { name: "Violet", hex: "#a855f7" },
+      { name: "Rose", hex: "#ec4899" },
+      { name: "Corail", hex: "#fb7185" },
+      { name: "Menthe", hex: "#2dd4bf" },
+      { name: "Or", hex: "#eab308" },
+      { name: "Ciel", hex: "#38bdf8" }
+    ];
+
+    const state = {
+      sessionCode: null,
+      playerId: "p_" + Math.random().toString(36).slice(2, 9),
+      selectedColor: null
+    };
+
+    const channel = new BroadcastChannel("game_session_sync");
+
+    const screens = {
+      code: document.getElementById("screenCode"),
+      profile: document.getElementById("screenProfile"),
+      lobby: document.getElementById("screenLobby")
+    };
+
+    const codeInput = document.getElementById("codeInput");
+    const codeForm = document.getElementById("codeForm");
+    const codeError = document.getElementById("codeError");
+    const randomCodeBtn = document.getElementById("randomCodeBtn");
+
+    const nameInput = document.getElementById("nameInput");
+    const profileForm = document.getElementById("profileForm");
+    const profileError = document.getElementById("profileError");
+    const colorsGrid = document.getElementById("colorsGrid");
+    const backToCodeBtn = document.getElementById("backToCodeBtn");
+
+    const activeCodeDisplay = document.getElementById("activeCodeDisplay");
+    const minPlayersNotice = document.getElementById("minPlayersNotice");
+    const playersGrid = document.getElementById("playersGrid");
+    const playerCountText = document.getElementById("playerCountText");
+    const statusDot = document.getElementById("statusDot");
+    const leaveBtn = document.getElementById("leaveBtn");
+    const startGameBtn = document.getElementById("startGameBtn");
+
+    function storageKey(code) {
+      return `game_session_${code}`;
+    }
+
+    function getSessionPlayers(code) {
+      if (!code) return [];
+      try {
+        return JSON.parse(localStorage.getItem(storageKey(code))) || [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveSessionPlayers(code, players) {
+      localStorage.setItem(storageKey(code), JSON.stringify(players));
+      channel.postMessage({ type: "update", code });
+    }
+
+    function showScreen(name) {
+      Object.values(screens).forEach((s) => s.classList.remove("active"));
+      screens[name].classList.add("active");
+    }
+
+    function showError(el, msg) {
+      el.textContent = msg;
+      el.classList.add("visible");
+    }
+
+    function hideError(el) {
+      el.textContent = "";
+      el.classList.remove("visible");
+    }
+
+    function renderCounter(players) {
+      const count = players.length;
+      playerCountText.textContent = `${count} / ${MAX_PLAYERS} ${count > 1 ? "joueurs" : "joueur"}`;
+      const enough = count >= MIN_PLAYERS;
+      statusDot.classList.toggle("ready", enough);
+
+      if (minPlayersNotice) {
+        if (count < MIN_PLAYERS) {
+          const missing = MIN_PLAYERS - count;
+          minPlayersNotice.textContent = `En attente de ${missing} ${missing > 1 ? "joueurs" : "joueur"} minimum`;
+          minPlayersNotice.style.color = "var(--warning)";
+        } else {
+          minPlayersNotice.textContent = "Minimum atteint — prêt à démarrer !";
+          minPlayersNotice.style.color = "var(--success)";
+        }
+      }
+
+      if (startGameBtn) {
+        startGameBtn.disabled = count < MIN_PLAYERS;
+      }
+    }
+
+    function renderColorPicker() {
+      const players = getSessionPlayers(state.sessionCode);
+      const takenColors = new Set(players.map((p) => p.color));
+      colorsGrid.innerHTML = "";
+
+      PALETTE.forEach((c) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "color-btn";
+        btn.style.backgroundColor = c.hex;
+        btn.title = c.name;
+        const isTaken = takenColors.has(c.hex);
+
+        if (isTaken) {
+          btn.classList.add("taken");
+          btn.disabled = true;
+        } else if (state.selectedColor === c.hex) {
+          btn.classList.add("selected");
+        }
+
+        btn.addEventListener("click", () => {
+          if (isTaken) return;
+          state.selectedColor = c.hex;
+          hideError(profileError);
+          renderColorPicker();
+        });
+
+        colorsGrid.appendChild(btn);
+      });
+    }
+
+    function renderLobby() {
+      const players = getSessionPlayers(state.sessionCode);
+      activeCodeDisplay.textContent = state.sessionCode;
+      renderCounter(players);
+
+      playersGrid.innerHTML = "";
+      players.forEach((p) => {
+        const card = document.createElement("div");
+        card.className = "player-card";
+
+        const avatar = document.createElement("div");
+        avatar.className = "avatar";
+        avatar.style.backgroundColor = p.color;
+        avatar.textContent = p.name.charAt(0).toUpperCase();
+
+        const info = document.createElement("div");
+        const nameEl = document.createElement("div");
+        nameEl.className = "player-name";
+        nameEl.textContent = p.name;
+
+        const tagEl = document.createElement("div");
+        tagEl.className = "player-tag";
+        tagEl.textContent = p.id === state.playerId ? "Toi" : "Connecté";
+
+        info.append(nameEl, tagEl);
+        card.append(avatar, info);
+        playersGrid.appendChild(card);
+      });
+    }
+
+    codeInput.addEventListener("input", () => {
+      codeInput.value = codeInput.value.replace(/\D/g, "").slice(0, 5);
+      hideError(codeError);
+    });
+
+    randomCodeBtn.addEventListener("click", () => {
+      codeInput.value = String(Math.floor(10000 + Math.random() * 90000));
+      hideError(codeError);
+    });
+
+    codeForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const code = codeInput.value.trim();
+      if (!/^\d{5}$/.test(code)) {
+        showError(codeError, "Le code doit contenir exactement 5 chiffres.");
+        return;
+      }
+
+      const players = getSessionPlayers(code);
+      const alreadyIn = players.some((p) => p.id === state.playerId);
+
+      if (!alreadyIn && players.length >= MAX_PLAYERS) {
+        showError(codeError, `Cette session est complète (${MAX_PLAYERS}/${MAX_PLAYERS} joueurs maximum).`);
+        return;
+      }
+
+      state.sessionCode = code;
+      state.selectedColor = null;
+      renderCounter(players);
+
+      if (alreadyIn) {
+        renderLobby();
+        showScreen("lobby");
+      } else {
+        renderColorPicker();
+        showScreen("profile");
+        nameInput.focus();
+      }
+    });
+
+    profileForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        showError(profileError, "Merci d'inscrire ton nom.");
+        return;
+      }
+      if (!state.selectedColor) {
+        showError(profileError, "Merci de choisir une couleur.");
+        return;
+      }
+
+      const players = getSessionPlayers(state.sessionCode);
+      if (players.length >= MAX_PLAYERS) {
+        showError(profileError, `Limite de ${MAX_PLAYERS} joueurs atteinte.`);
+        return;
+      }
+      if (players.some((p) => p.color === state.selectedColor)) {
+        showError(profileError, "Cette couleur vient d'être prise, choisis-en une autre.");
+        renderColorPicker();
+        return;
+      }
+
+      players.push({
+        id: state.playerId,
+        name,
+        color: state.selectedColor
+      });
+
+      saveSessionPlayers(state.sessionCode, players);
+      renderLobby();
+      showScreen("lobby");
+    });
+
+    backToCodeBtn.addEventListener("click", () => {
+      state.sessionCode = null;
+      state.selectedColor = null;
+      renderCounter([]);
+      showScreen("code");
+    });
+
+    leaveBtn.addEventListener("click", () => {
+      if (!state.sessionCode) return;
+      const updated = getSessionPlayers(state.sessionCode).filter((p) => p.id !== state.playerId);
+      saveSessionPlayers(state.sessionCode, updated);
+      state.sessionCode = null;
+      state.selectedColor = null;
+      nameInput.value = "";
+      renderCounter([]);
+      showScreen("code");
+    });
+
+    startGameBtn.addEventListener("click", () => {
+      const players = getSessionPlayers(state.sessionCode);
+      if (players.length < MIN_PLAYERS) return;
+      alert(`La partie commence avec ${players.length} joueurs dans la session ${state.sessionCode} !`);
+    });
+
+    channel.addEventListener("message", (event) => {
+      if (event.data?.type === "update" && event.data.code === state.sessionCode) {
+        if (screens.lobby.classList.contains("active")) {
+          renderLobby();
+        } else if (screens.profile.classList.contains("active")) {
+          renderCounter(getSessionPlayers(state.sessionCode));
+          renderColorPicker();
+        }
+      }
+    });
+
+    window.addEventListener("beforeunload", () => {
+      if (!state.sessionCode) return;
+      const updated = getSessionPlayers(state.sessionCode).filter((p) => p.id !== state.playerId);
+      saveSessionPlayers(state.sessionCode, updated);
+    });
+  </script>
+</body>
+</html>
