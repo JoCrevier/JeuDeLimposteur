@@ -7,7 +7,7 @@ import {
   deleteDoc,
   onSnapshot,
   runTransaction,
-  serverTimestamp
+  serverTimestamp,
 } from "./firebase.js";
 
 import {
@@ -27,7 +27,7 @@ import {
   buildTurnOrder,
   createInitialGameState,
   advanceWriteTurn,
-  resolveVotes
+  resolveVotes,
 } from "./game.js";
 
 import {
@@ -39,7 +39,7 @@ import {
   openBoardWindow,
   showScreen,
   showError,
-  hideError
+  hideError,
 } from "./state.js";
 
 import { stopTurnTimer, stopVoteTimer } from "./timers.js";
@@ -48,7 +48,7 @@ import {
   renderColorPicker,
   renderThemeSelector,
   renderLobby,
-  renderGame
+  renderGame,
 } from "./ui.js";
 
 dom.joinSubmitBtn.disabled = true;
@@ -74,7 +74,7 @@ function resetLocalSessionState(noticeMessage = "") {
     game: null,
     isNewSession: false,
     timeoutTriggeredForTurn: null,
-    timeoutTriggeredForVoteRound: null
+    timeoutTriggeredForVoteRound: null,
   });
   renderCounter([]);
   showScreen("code");
@@ -101,9 +101,15 @@ async function selectSessionTheme(themeId) {
 
   try {
     await updateSalonTransaction((transaction, salonRef, data) => {
-      const currentHost = resolveHostId(data.hostId, sanitizePlayersList(data.players));
+      const currentHost = resolveHostId(
+        data.hostId,
+        sanitizePlayersList(data.players),
+      );
       if (currentHost !== state.playerId) return;
-      transaction.update(salonRef, { themeId: safeThemeId, updatedAt: serverTimestamp() });
+      transaction.update(salonRef, {
+        themeId: safeThemeId,
+        updatedAt: serverTimestamp(),
+      });
     });
   } catch (err) {
     console.error("Erreur sélection thème :", err);
@@ -111,7 +117,8 @@ async function selectSessionTheme(themeId) {
 }
 
 async function castVote(targetId) {
-  if (!state.sessionCode || !state.playerId || targetId === state.playerId) return;
+  if (!state.sessionCode || !state.playerId || targetId === state.playerId)
+    return;
   hideError(dom.gameError);
 
   try {
@@ -126,14 +133,17 @@ async function castVote(targetId) {
       const me = players.find((p) => p.id === state.playerId);
       if (!me || me.eliminated) return;
 
-      const updatedVotes = { ...(game.votes || {}), [state.playerId]: targetId };
+      const updatedVotes = {
+        ...(game.votes || {}),
+        [state.playerId]: targetId,
+      };
       const activePlayers = players.filter((p) => !p.eliminated);
       const allVoted = activePlayers.every((p) => Boolean(updatedVotes[p.id]));
 
       if (!allVoted) {
         transaction.update(salonRef, {
           game: { ...game, votes: updatedVotes },
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
         });
         return;
       }
@@ -146,9 +156,9 @@ async function castVote(targetId) {
           votes: updatedVotes,
           voteDeadline: null,
           phase: outcome.nextPhase,
-          lastResult: outcome.resultData
+          lastResult: outcome.resultData,
         },
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
     });
   } catch (err) {
@@ -167,30 +177,36 @@ function startSalonListener(code) {
     getSalonRef(code),
     (snap) => {
       if (!snap.exists()) {
-        if (state.isNewSession && screens.profile.classList.contains("active")) return;
+        if (state.isNewSession && screens.profile.classList.contains("active"))
+          return;
         const wasActive =
-          screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
-        resetLocalSessionState(wasActive ? "La session a été supprimée par l'hôte." : "");
+          screens.lobby.classList.contains("active") ||
+          screens.game.classList.contains("active");
+        resetLocalSessionState(
+          wasActive ? "La session a été supprimée par l'hôte." : "",
+        );
         return;
       }
 
       const data = snap.data();
       const hadJoinedRoom =
-        screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
+        screens.lobby.classList.contains("active") ||
+        screens.game.classList.contains("active");
 
       state.players = sanitizePlayersList(data.players);
       state.hostId = resolveHostId(data.hostId, state.players);
       state.selectedThemeId = normalizeThemeId(data.themeId);
       state.game = data.game || null;
 
+      const amHost = isCurrentUserHost();
       const meInRoom = state.players.some((p) => p.id === state.playerId);
 
-      if (hadJoinedRoom && !meInRoom) {
+      if (hadJoinedRoom && !amHost && !meInRoom) {
         resetLocalSessionState("Tu as été expulsé de la session par l'hôte.");
         return;
       }
 
-      if (meInRoom && state.game?.status === "playing") {
+      if (!amHost && meInRoom && state.game?.status === "playing") {
         showScreen("game");
         renderGame(castVote);
         return;
@@ -204,13 +220,16 @@ function startSalonListener(code) {
         renderLobby(selectSessionTheme);
       } else if (screens.profile.classList.contains("active")) {
         renderCounter(state.players);
-        if (state.selectedColor && state.players.some((p) => p.color === state.selectedColor)) {
+        if (
+          state.selectedColor &&
+          state.players.some((p) => p.color === state.selectedColor)
+        ) {
           state.selectedColor = null;
         }
         renderColorPicker();
       }
     },
-    (err) => console.error("Erreur temps réel Firestore :", err)
+    (err) => console.error("Erreur temps réel Firestore :", err),
   );
 }
 
@@ -225,8 +244,11 @@ initAnonymousSession(
   (err) => {
     console.error("Erreur initialisation auth :", err);
     showError(dom.codeError, "Impossible d'initialiser la session sécurisée.");
-    showError(dom.createError, "Impossible d'initialiser la session sécurisée.");
-  }
+    showError(
+      dom.createError,
+      "Impossible d'initialiser la session sécurisée.",
+    );
+  },
 );
 
 // Événements Écran 1 : Accueil (Rejoindre / Créer)
@@ -276,7 +298,7 @@ dom.joinForm.addEventListener("submit", async (e) => {
     const data = snap.data();
     const currentPlayers = sanitizePlayersList(data.players);
 
-    if (currentPlayers.length === 0) {
+    if (!data.hostId && currentPlayers.length === 0) {
       await deleteDoc(salonRef);
       showError(dom.codeError, "Cette session est vide et a été fermée.");
       return;
@@ -285,12 +307,18 @@ dom.joinForm.addEventListener("submit", async (e) => {
     const alreadyIn = currentPlayers.some((p) => p.id === state.playerId);
 
     if (!alreadyIn && data?.game?.status === "playing") {
-      showError(dom.codeError, "Une partie est déjà en cours dans cette session.");
+      showError(
+        dom.codeError,
+        "Une partie est déjà en cours dans cette session.",
+      );
       return;
     }
 
     if (!alreadyIn && currentPlayers.length >= MAX_PLAYERS) {
-      showError(dom.codeError, `Cette session est complète (${MAX_PLAYERS}/${MAX_PLAYERS} joueurs maximum).`);
+      showError(
+        dom.codeError,
+        `Cette session est complète (${MAX_PLAYERS}/${MAX_PLAYERS} joueurs maximum).`,
+      );
       return;
     }
 
@@ -301,7 +329,7 @@ dom.joinForm.addEventListener("submit", async (e) => {
       isNewSession: false,
       selectedColor: null,
       players: currentPlayers,
-      game: data?.game || null
+      game: data?.game || null,
     });
 
     persistSessionCodeForBoard(code);
@@ -328,6 +356,7 @@ dom.joinForm.addEventListener("submit", async (e) => {
   }
 });
 
+// Création directe d'une session par l'hôte (sans l'ajouter comme joueur)
 dom.createSessionBtn.addEventListener("click", async () => {
   if (!state.authReady || !state.playerId) {
     showError(dom.createError, "Connexion en cours, réessaie dans un instant.");
@@ -349,43 +378,59 @@ dom.createSessionBtn.addEventListener("click", async () => {
     }
 
     if (!newCode) {
-      showError(dom.createError, "Impossible de générer un code disponible pour le moment.");
+      showError(
+        dom.createError,
+        "Impossible de générer un code disponible pour le moment.",
+      );
       return;
     }
+
+    const salonRef = getSalonRef(newCode);
+    await setDoc(salonRef, {
+      code: newCode,
+      hostId: state.playerId,
+      themeId: DEFAULT_THEME_ID,
+      players: [],
+      game: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
 
     Object.assign(state, {
       sessionCode: newCode,
       hostId: state.playerId,
       selectedThemeId: DEFAULT_THEME_ID,
-      isNewSession: true,
+      isNewSession: false,
       selectedColor: null,
       players: [],
-      game: null
+      game: null,
     });
 
     persistSessionCodeForBoard(newCode);
     renderCounter([]);
     startSalonListener(newCode);
-
-    dom.profileModeBadge.textContent = "Nouvelle session";
-    renderColorPicker();
-    showScreen("profile");
-    dom.nameInput.focus();
+    openBoardWindow(newCode);
+    renderLobby(selectSessionTheme);
+    showScreen("lobby");
   } catch (err) {
     console.error("Erreur création session :", err);
-    showError(dom.createError, `Impossible de créer la session (${err?.code || "erreur"}).`);
+    showError(
+      dom.createError,
+      `Impossible de créer la session (${err?.code || "erreur"}).`,
+    );
   } finally {
     dom.createSessionBtn.disabled = false;
   }
 });
 
-// Événements Écran 2 : Profil
+// Événements Écran 2 : Profil (joueurs rejoignant une session)
 dom.profileForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const cleanName = dom.nameInput.value.trim().slice(0, 20);
   const chosenColor = state.selectedColor;
 
-  if (!cleanName) return showError(dom.profileError, "Merci d'inscrire ton nom.");
+  if (!cleanName)
+    return showError(dom.profileError, "Merci d'inscrire ton nom.");
   if (!chosenColor || !ALLOWED_HEX_SET.has(chosenColor)) {
     return showError(dom.profileError, "Merci de choisir une couleur valide.");
   }
@@ -401,46 +446,26 @@ dom.profileForm.addEventListener("submit", async (e) => {
     name: cleanName,
     color: chosenColor,
     ready: false,
-    eliminated: false
+    eliminated: false,
   };
 
   try {
-    const salonRef = getSalonRef(state.sessionCode);
-
-    if (state.isNewSession) {
-      await setDoc(salonRef, {
-        code: state.sessionCode,
-        hostId: state.playerId,
-        themeId: normalizeThemeId(state.selectedThemeId),
-        players: [newPlayer],
-        game: null,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
-      });
-      state.isNewSession = false;
-      state.hostId = state.playerId;
-      state.players = [newPlayer];
-      openBoardWindow(state.sessionCode);
-      renderLobby(selectSessionTheme);
-      showScreen("lobby");
-      return;
-    }
-
     const res = await updateSalonTransaction((transaction, ref, data) => {
       const existingPlayers = sanitizePlayersList(data.players);
       const filtered = existingPlayers.filter((p) => p.id !== state.playerId);
 
       if (data?.game?.status === "playing") throw new Error("IN_PROGRESS");
       if (filtered.length >= MAX_PLAYERS) throw new Error("FULL");
-      if (filtered.some((p) => p.color === chosenColor)) throw new Error("COLOR_TAKEN");
+      if (filtered.some((p) => p.color === chosenColor))
+        throw new Error("COLOR_TAKEN");
 
       filtered.push(newPlayer);
-      const resolvedHost = resolveHostId(data.hostId, filtered) || state.playerId;
+      const resolvedHost = resolveHostId(data.hostId, filtered);
 
       transaction.update(ref, {
         hostId: resolvedHost,
         players: filtered,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
       return true;
     });
@@ -454,7 +479,7 @@ dom.profileForm.addEventListener("submit", async (e) => {
       NOT_FOUND: "Cette session n'existe plus.",
       IN_PROGRESS: "La partie vient de démarrer.",
       FULL: `Limite de ${MAX_PLAYERS} joueurs atteinte.`,
-      COLOR_TAKEN: "Cette couleur vient d'être prise, choisis-en une autre."
+      COLOR_TAKEN: "Cette couleur vient d'être prise, choisis-en une autre.",
     };
 
     if (err.message === "COLOR_TAKEN") {
@@ -466,29 +491,18 @@ dom.profileForm.addEventListener("submit", async (e) => {
       showError(dom.profileError, errorMap[err.message]);
     } else {
       console.error("Erreur ajout joueur :", err);
-      showError(dom.profileError, `Impossible de rejoindre la session (${err?.code || "erreur"}).`);
+      showError(
+        dom.profileError,
+        `Impossible de rejoindre la session (${err?.code || "erreur"}).`,
+      );
     }
   } finally {
     dom.submitProfileBtn.disabled = false;
   }
 });
 
-dom.backToCodeBtn.addEventListener("click", async () => {
-  const code = state.sessionCode;
-  const wasNew = state.isNewSession;
+dom.backToCodeBtn.addEventListener("click", () => {
   resetLocalSessionState();
-
-  if (code && wasNew) {
-    try {
-      const ref = getSalonRef(code);
-      const snap = await getDoc(ref);
-      if (snap.exists() && sanitizePlayersList(snap.data().players).length === 0) {
-        await deleteDoc(ref);
-      }
-    } catch (err) {
-      console.error("Erreur nettoyage session vide :", err);
-    }
-  }
 });
 
 // Événements Écran 3 : Salon & Hôte
@@ -501,15 +515,11 @@ dom.kickAllBtn.addEventListener("click", async () => {
       const players = sanitizePlayersList(data.players);
       if (resolveHostId(data.hostId, players) !== state.playerId) return;
 
-      const hostOnly = players
-        .filter((p) => p.id === state.playerId)
-        .map((p) => ({ ...p, ready: false, eliminated: false }));
-
       transaction.update(salonRef, {
         hostId: state.playerId,
-        players: hostOnly,
+        players: [],
         game: null,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
     });
   } catch (err) {
@@ -535,7 +545,7 @@ dom.deleteSessionBtn.addEventListener("click", async () => {
 });
 
 dom.toggleReadyBtn.addEventListener("click", async () => {
-  if (!state.sessionCode || !state.playerId) return;
+  if (!state.sessionCode || !state.playerId || isCurrentUserHost()) return;
   dom.toggleReadyBtn.disabled = true;
 
   try {
@@ -543,7 +553,9 @@ dom.toggleReadyBtn.addEventListener("click", async () => {
       if (data.game?.status === "playing") return;
 
       const updatedPlayers = sanitizePlayersList(data.players).map((p) =>
-        p.id === state.playerId ? { ...p, ready: !p.ready, eliminated: false } : p
+        p.id === state.playerId
+          ? { ...p, ready: !p.ready, eliminated: false }
+          : p,
       );
 
       const themeId = normalizeThemeId(data.themeId);
@@ -554,7 +566,7 @@ dom.toggleReadyBtn.addEventListener("click", async () => {
       transaction.update(salonRef, {
         players: updatedPlayers,
         game: nextGame,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
     });
   } catch (err) {
@@ -580,20 +592,22 @@ async function leaveSession() {
       if (!snap.exists()) return;
 
       const data = snap.data();
-      const updated = sanitizePlayersList(data.players).filter((p) => p.id !== uid);
 
-      if (updated.length === 0) {
+      // Si l'hôte non-joueur quitte, la session est fermée
+      if (data.hostId === uid) {
         transaction.delete(salonRef);
-      } else {
-        const nextHost =
-          data.hostId === uid ? updated[0].id : resolveHostId(data.hostId, updated);
-        transaction.update(salonRef, {
-          hostId: nextHost,
-          players: updated,
-          game: updated.length < MIN_PLAYERS ? null : data.game || null,
-          updatedAt: serverTimestamp()
-        });
+        return;
       }
+
+      const updated = sanitizePlayersList(data.players).filter(
+        (p) => p.id !== uid,
+      );
+
+      transaction.update(salonRef, {
+        players: updated,
+        game: updated.length < MIN_PLAYERS ? null : data.game || null,
+        updatedAt: serverTimestamp(),
+      });
     });
   } catch (err) {
     console.error("Erreur départ session :", err);
@@ -619,18 +633,21 @@ dom.wordForm.addEventListener("submit", async (e) => {
 
       const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
       const currentIdx = game.currentTurnIndex || 0;
-      if (order[currentIdx] !== state.playerId) throw new Error("NOT_YOUR_TURN");
+      if (order[currentIdx] !== state.playerId)
+        throw new Error("NOT_YOUR_TURN");
       if (game.turnDeadline && Date.now() > game.turnDeadline + 250) {
         throw new Error("TIME_EXPIRED");
       }
 
-      const me = sanitizePlayersList(data.players).find((p) => p.id === state.playerId);
+      const me = sanitizePlayersList(data.players).find(
+        (p) => p.id === state.playerId,
+      );
       if (!me || me.eliminated) return;
 
       const updatedWords = { ...(game.words || {}), [state.playerId]: word };
       transaction.update(salonRef, {
         game: advanceWriteTurn({ ...game, words: updatedWords }, Date.now()),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
     });
 
@@ -639,7 +656,10 @@ dom.wordForm.addEventListener("submit", async (e) => {
     if (err.message === "NOT_YOUR_TURN") {
       showError(dom.gameError, "Ce n'est pas ton tour d'écrire.");
     } else if (err.message === "TIME_EXPIRED") {
-      showError(dom.gameError, "Les 20 secondes sont écoulées : tu perds ton mot pour ce tour.");
+      showError(
+        dom.gameError,
+        "Les 20 secondes sont écoulées : tu perds ton mot pour ce tour.",
+      );
     } else {
       console.error("Erreur envoi mot :", err);
       showError(dom.gameError, "Impossible d'enregistrer ton mot.");
@@ -662,9 +682,9 @@ dom.goToVoteBtn.addEventListener("click", async () => {
           ...data.game,
           phase: "vote",
           votes: {},
-          voteDeadline: Date.now() + VOTE_SECONDS * 1000
+          voteDeadline: Date.now() + VOTE_SECONDS * 1000,
         },
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
       });
     });
   } catch (err) {
@@ -688,12 +708,12 @@ dom.nextRoundBtn.addEventListener("click", async () => {
         const resetPlayers = sanitizePlayersList(data.players).map((p) => ({
           ...p,
           ready: false,
-          eliminated: false
+          eliminated: false,
         }));
         transaction.update(salonRef, {
           players: resetPlayers,
           game: null,
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
         });
       } else if (game.phase === "result") {
         const players = sanitizePlayersList(data.players);
@@ -712,9 +732,9 @@ dom.nextRoundBtn.addEventListener("click", async () => {
             phase: "write",
             words: {},
             votes: {},
-            lastResult: null
+            lastResult: null,
           },
-          updatedAt: serverTimestamp()
+          updatedAt: serverTimestamp(),
         });
       }
     });
@@ -724,4 +744,3 @@ dom.nextRoundBtn.addEventListener("click", async () => {
     dom.nextRoundBtn.disabled = false;
   }
 });
-

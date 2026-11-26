@@ -5,21 +5,21 @@ import {
   PALETTE,
   THEMES,
   THEME_LIST,
-  normalizeThemeId
+  normalizeThemeId,
 } from "./game.js";
 import {
   state,
   dom,
   isCurrentUserHost,
   persistSessionCodeForBoard,
-  hideError
+  hideError,
 } from "./state.js";
 import {
   turnStatusText,
   startTurnTimer,
   stopTurnTimer,
   startVoteTimer,
-  stopVoteTimer
+  stopVoteTimer,
 } from "./timers.js";
 
 export function renderCounter(players) {
@@ -36,7 +36,8 @@ export function renderCounter(players) {
   } else {
     const readyCount = players.filter((p) => p.ready).length;
     dom.minPlayersNotice.textContent = `${readyCount} / ${count} joueurs prêts`;
-    dom.minPlayersNotice.style.color = readyCount === count ? "var(--success)" : "var(--accent)";
+    dom.minPlayersNotice.style.color =
+      readyCount === count ? "var(--success)" : "var(--accent)";
   }
 }
 
@@ -82,7 +83,8 @@ export function renderThemeSelector(onSelectTheme) {
   THEME_LIST.forEach((theme) => {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.className = "theme-btn" + (theme.id === state.selectedThemeId ? " active" : "");
+    btn.className =
+      "theme-btn" + (theme.id === state.selectedThemeId ? " active" : "");
     btn.textContent = theme.label;
     btn.disabled = !canPickTheme;
     btn.addEventListener("click", () => onSelectTheme(theme.id));
@@ -96,12 +98,15 @@ export function renderLobby(onSelectTheme) {
 
   const amHost = isCurrentUserHost();
   dom.hostControls.classList.toggle("hidden", !amHost);
-  dom.kickAllBtn.disabled = state.players.length <= 1;
+  dom.kickAllBtn.disabled = state.players.length === 0;
+  dom.toggleReadyBtn.classList.toggle("hidden", amHost);
 
-  const me = state.players.find((p) => p.id === state.playerId);
-  if (me) {
-    dom.toggleReadyBtn.textContent = me.ready ? "Annuler « Prêt »" : "Je suis prêt";
-    dom.toggleReadyBtn.className = me.ready ? "btn-secondary" : "btn-success";
+  if (!amHost) {
+    const me = state.players.find((p) => p.id === state.playerId);
+    if (me) {
+      dom.toggleReadyBtn.textContent = me.ready ? "Annuler « Prêt »" : "Je suis prêt";
+      dom.toggleReadyBtn.className = me.ready ? "btn-secondary" : "btn-success";
+    }
   }
 
   dom.playersGrid.innerHTML = "";
@@ -122,9 +127,7 @@ export function renderLobby(onSelectTheme) {
     nameEl.className = "player-name";
     nameEl.textContent = p.name;
 
-    const tags = [];
-    if (p.id === state.hostId) tags.push("Hôte ★");
-    tags.push(p.id === state.playerId ? "Toi" : "Connecté");
+    const tags = [p.id === state.playerId ? "Toi" : "Connecté"];
 
     const tagEl = document.createElement("div");
     tagEl.className = "player-tag";
@@ -149,7 +152,8 @@ export function renderGame(onCastVote) {
   persistSessionCodeForBoard(state.sessionCode);
   renderCounter(state.players);
 
-  const themeLabel = game.themeLabel || THEMES[normalizeThemeId(state.selectedThemeId)].label;
+  const themeLabel =
+    game.themeLabel || THEMES[normalizeThemeId(state.selectedThemeId)].label;
   dom.roundDisplay.textContent = `Manche ${game.round || 1} • Thème : ${themeLabel}`;
 
   const me = state.players.find((p) => p.id === state.playerId);
@@ -158,16 +162,20 @@ export function renderGame(onCastVote) {
 
   if (amImpostor) {
     dom.roleBanner.className = "role-card impostor";
-    dom.roleBanner.textContent = "Rôle : IMPOSTEUR • Mot secret caché — devine-le !";
+    dom.roleBanner.textContent =
+      "Rôle : IMPOSTEUR • Mot secret caché — devine-le !";
   } else {
     dom.roleBanner.className = "role-card detective";
     dom.roleBanner.textContent = `Mot secret : ${game.secretWord} • Enquêteur`;
   }
 
   // Masquer toutes les sous-vues avant d'afficher la phase active
-  [dom.phaseWriteView, dom.phaseDiscussView, dom.phaseVoteView, dom.phaseResultView].forEach((v) =>
-    v.classList.add("hidden")
-  );
+  [
+    dom.phaseWriteView,
+    dom.phaseDiscussView,
+    dom.phaseVoteView,
+    dom.phaseResultView,
+  ].forEach((v) => v.classList.add("hidden"));
 
   const activePlayers = state.players.filter((p) => !p.eliminated);
 
@@ -177,7 +185,9 @@ export function renderGame(onCastVote) {
     const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
     const currentTurnIdx = game.currentTurnIndex || 0;
     const activeTurnPlayerId = order[currentTurnIdx] || null;
-    const activeTurnPlayer = state.players.find((p) => p.id === activeTurnPlayerId);
+    const activeTurnPlayer = state.players.find(
+      (p) => p.id === activeTurnPlayerId,
+    );
     const isMyTurn = activeTurnPlayerId === state.playerId && !amEliminated;
 
     dom.phaseTitle.textContent = `Phase 1 / 3 : Écriture (${Math.min(currentTurnIdx + 1, order.length)} / ${order.length})`;
@@ -190,10 +200,13 @@ export function renderGame(onCastVote) {
       : "Préparation du tour...";
     startTurnTimer(game);
 
-    const completedTurns = order.filter((id) => Boolean(game.words && id in game.words)).length;
+    const completedTurns = order.filter((id) =>
+      Boolean(game.words && id in game.words),
+    ).length;
 
     if (amEliminated) {
-      dom.writeInstruction.textContent = "Tu as été éliminé. Observe les tours des joueurs restants.";
+      dom.writeInstruction.textContent =
+        "Tu as été éliminé. Observe les tours des joueurs restants.";
       dom.wordForm.classList.add("hidden");
       dom.wordInput.disabled = true;
       dom.submitWordBtn.disabled = true;
@@ -242,7 +255,8 @@ export function renderGame(onCastVote) {
       nameSpan.textContent = p.name + (p.id === state.playerId ? " (Toi)" : "");
       header.append(dot, nameSpan);
 
-      const submittedWord = game.words && p.id in game.words ? game.words[p.id] : null;
+      const submittedWord =
+        game.words && p.id in game.words ? game.words[p.id] : null;
       const wordVal = document.createElement("div");
       wordVal.className = submittedWord ? "word-value" : "word-value missed";
       wordVal.textContent = submittedWord || "Aucun mot (temps écoulé)";
@@ -262,7 +276,9 @@ export function renderGame(onCastVote) {
     startVoteTimer(game);
 
     const myVote = game.votes?.[state.playerId] || null;
-    const votedCount = activePlayers.filter((p) => Boolean(game.votes?.[p.id])).length;
+    const votedCount = activePlayers.filter((p) =>
+      Boolean(game.votes?.[p.id]),
+    ).length;
 
     dom.voteGrid.innerHTML = "";
     activePlayers.forEach((target) => {
@@ -305,9 +321,12 @@ export function renderGame(onCastVote) {
 
   // Phase 4 : Résultat ou Fin de partie
   if (game.phase === "result" || game.phase === "finished") {
-    dom.phaseTitle.textContent = game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
+    dom.phaseTitle.textContent =
+      game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
     dom.phaseResultView.classList.remove("hidden");
-    dom.resultBanner.textContent = game.lastResult?.message || "Manche terminée.";
-    dom.nextRoundBtn.textContent = game.phase === "finished" ? "Retour au salon" : "Manche suivante";
+    dom.resultBanner.textContent =
+      game.lastResult?.message || "Manche terminée.";
+    dom.nextRoundBtn.textContent =
+      game.phase === "finished" ? "Retour au salon" : "Manche suivante";
   }
 }
