@@ -20,8 +20,13 @@ const boardPhaseDisplay = document.getElementById("boardPhaseDisplay");
 const boardTimerPill = document.getElementById("boardTimerPill");
 const liveIndicator = document.getElementById("liveIndicator");
 
+const boardStage = document.getElementById("boardStage");
 const submittedCountBadge = document.getElementById("submittedCountBadge");
 const submittedWordsList = document.getElementById("submittedWordsList");
+
+const votesPanel = document.getElementById("votesPanel");
+const votesCountBadge = document.getElementById("votesCountBadge");
+const votesBreakdownList = document.getElementById("votesBreakdownList");
 
 const boardThemeTitle = document.getElementById("boardThemeTitle");
 const boardStatusSubtext = document.getElementById("boardStatusSubtext");
@@ -94,6 +99,74 @@ function startTimerIfNeeded() {
   timerInterval = setInterval(updateBoardTimer, 250);
 }
 
+function countVotesAnonymously(players, game) {
+  const counts = {};
+  const activePlayers = players.filter((p) => !p.eliminated);
+  const activeIds = new Set(activePlayers.map((p) => p.id));
+
+  activePlayers.forEach((p) => {
+    counts[p.id] = 0;
+  });
+
+  // On ignore volontairement les clés (qui a voté) pour ne garder que le total par cible
+  const votesMap = game?.votes && typeof game.votes === "object" ? game.votes : {};
+  Object.entries(votesMap).forEach(([voterId, targetId]) => {
+    if (activeIds.has(voterId) && targetId in counts) {
+      counts[targetId] += 1;
+    }
+  });
+
+  return counts;
+}
+
+function renderVotesPanel(players, game) {
+  if (!votesPanel || !votesBreakdownList || !votesCountBadge) return;
+
+  const isVotePhase = game?.status === "playing" && game.phase === "vote";
+  votesPanel.classList.toggle("hidden", !isVotePhase);
+  boardStage?.classList.toggle("has-votes", Boolean(isVotePhase));
+
+  if (!isVotePhase) {
+    votesBreakdownList.innerHTML = "";
+    return;
+  }
+
+  const activePlayers = players.filter((p) => !p.eliminated);
+  const counts = countVotesAnonymously(players, game);
+  const totalVotes = Object.values(counts).reduce((sum, n) => sum + n, 0);
+
+  votesCountBadge.textContent = `${totalVotes} ${totalVotes > 1 ? "votes" : "vote"}`;
+  votesBreakdownList.innerHTML = "";
+
+  const sortedTargets = [...activePlayers].sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0));
+
+  sortedTargets.forEach((target) => {
+    const nbVotes = counts[target.id] || 0;
+
+    const card = document.createElement("div");
+    card.className = "vote-row-card" + (nbVotes > 0 ? " has-votes" : "");
+
+    const left = document.createElement("div");
+    left.className = "vote-row-player";
+
+    const dot = document.createElement("span");
+    dot.className = "author-dot";
+    dot.style.backgroundColor = target.color;
+
+    const nameSpan = document.createElement("span");
+    nameSpan.textContent = target.name;
+
+    left.append(dot, nameSpan);
+
+    const badge = document.createElement("span");
+    badge.className = "vote-count-pill";
+    badge.textContent = `${nbVotes} ${nbVotes > 1 ? "votes" : "vote"}`;
+
+    card.append(left, badge);
+    votesBreakdownList.appendChild(card);
+  });
+}
+
 function renderThemeWords(themeId) {
   const safeId = normalizeThemeId(themeId);
   const theme = THEMES[safeId] || THEMES[DEFAULT_THEME_ID];
@@ -115,7 +188,6 @@ function renderSubmittedWords(players, game) {
   const wordsMap = game?.words && typeof game.words === "object" ? game.words : {};
   const turnOrder = Array.isArray(game?.turnOrder) ? game.turnOrder : [];
 
-  // Ordre d'affichage : ordre de passage si disponible, sinon joueurs inscrits
   const orderedIds = [];
   turnOrder.forEach((id) => {
     if (id in wordsMap && !orderedIds.includes(id)) {
@@ -215,6 +287,9 @@ function renderPlayersStrip(players, game) {
 
 function renderBoard(data) {
   currentSalonData = data;
+  const resolvedCode = data?.code || getCodeFromUrlOrStorage() || "-----";
+  boardCodeDisplay.textContent = resolvedCode;
+
   if (!data) {
     liveIndicator.classList.add("waiting");
     boardRoundDisplay.textContent = "Session introuvable";
@@ -223,6 +298,7 @@ function renderBoard(data) {
       "Aucune session trouvée. Crée ou rejoins une session depuis l'écran joueur.";
     renderThemeWords(DEFAULT_THEME_ID);
     renderSubmittedWords([], null);
+    renderVotesPanel([], null);
     renderPlayersStrip([], null);
     boardResultBanner.classList.add("hidden");
     stopTimer();
@@ -234,9 +310,9 @@ function renderBoard(data) {
   const game = data.game || null;
   const themeId = game?.themeId || data.themeId || DEFAULT_THEME_ID;
 
-  boardCodeDisplay.textContent = data.code || getCodeFromUrlOrStorage() || "-----";
   renderThemeWords(themeId);
   renderSubmittedWords(players, game);
+  renderVotesPanel(players, game);
   renderPlayersStrip(players, game);
 
   if (game && game.status === "playing") {
@@ -253,7 +329,7 @@ function renderBoard(data) {
       boardStatusSubtext.textContent = "Observez les mots écrits à gauche et discutez ensemble.";
     } else if (game.phase === "vote") {
       boardPhaseDisplay.textContent = "Phase 3 : Vote (60s)";
-      boardStatusSubtext.textContent = "Les joueurs votent sur leur téléphone pour éliminer un suspect.";
+      boardStatusSubtext.textContent = "Les joueurs votent sur leur écran. Le nombre de votes s'affiche en direct.";
     } else if (game.phase === "result") {
       boardPhaseDisplay.textContent = "Résultat de la manche";
       boardStatusSubtext.textContent = "Préparation de la manche suivante...";
@@ -305,6 +381,7 @@ if (initialCode) {
 }
 renderThemeWords(DEFAULT_THEME_ID);
 renderSubmittedWords([], null);
+renderVotesPanel([], null);
 renderPlayersStrip([], null);
 
 initAnonymousSession(

@@ -26,7 +26,7 @@
       </div>
     </header>
 
-    <main class="board-stage">
+    <main class="board-stage" id="boardStage">
       <!-- Colonne de gauche : Mots écrits en direct par les joueurs -->
       <aside class="submitted-panel" aria-label="Mots écrits par les joueurs">
         <div class="panel-header">
@@ -38,6 +38,15 @@
             Aucun mot écrit pour le moment. Les mots apparaîtront ici en direct dès qu'un joueur valide son tour.
           </div>
         </div>
+      </aside>
+
+      <!-- Panneau de vote : visible uniquement pendant la phase de vote -->
+      <aside class="votes-panel hidden" id="votesPanel" aria-label="Compteurs de votes">
+        <div class="panel-header">
+          <h2>Votes</h2>
+          <span class="panel-count" id="votesCountBadge">0 vote</span>
+        </div>
+        <div id="votesBreakdownList" class="votes-breakdown-list"></div>
       </aside>
 
       <!-- Zone centrale : Thème principal au-dessus + Tous les mots du thème au centre -->
