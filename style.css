@@ -666,3 +666,38 @@ button:disabled {
   }
 }
 
+/* Motif de petits pois semi-transparents en arrière-plan */
+.bg-dots-pattern {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(rgba(255, 255, 255, 0.22) 2px, transparent 2.5px),
+    radial-gradient(rgba(255, 229, 92, 0.2) 2.5px, transparent 3px),
+    radial-gradient(rgba(104, 217, 245, 0.2) 2px, transparent 2.5px);
+  background-size: 36px 36px, 72px 72px, 108px 108px;
+  background-position: 0 0, 18px 18px, 36px 12px;
+  animation: dotsDrift 28s linear infinite;
+}
+
+.app,
+.board-app {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes dotsDrift {
+  0% {
+    background-position: 0 0, 18px 18px, 36px 12px;
+  }
+  100% {
+    background-position: 72px 72px, 90px 90px, 108px 84px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bg-dots-pattern {
+    animation: none;
+  }
+}
