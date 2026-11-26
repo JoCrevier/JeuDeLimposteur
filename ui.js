@@ -104,7 +104,9 @@ export function renderLobby(onSelectTheme) {
   if (!amHost) {
     const me = state.players.find((p) => p.id === state.playerId);
     if (me) {
-      dom.toggleReadyBtn.textContent = me.ready ? "Annuler « Prêt »" : "Je suis prêt";
+      dom.toggleReadyBtn.textContent = me.ready
+        ? "Annuler « Prêt »"
+        : "Je suis prêt";
       dom.toggleReadyBtn.className = me.ready ? "btn-secondary" : "btn-success";
     }
   }

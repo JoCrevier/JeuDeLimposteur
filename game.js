@@ -149,7 +149,7 @@ export function sanitizePlayersList(rawPlayers) {
 }
 
 export function resolveHostId(rawHostId, players) {
-  if (typeof rawHostId === "string" && players.some((p) => p.id === rawHostId)) {
+  if (typeof rawHostId === "string" && rawHostId.trim()) {
     return rawHostId;
   }
   return players[0]?.id || null;
