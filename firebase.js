@@ -15,16 +15,15 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyAAayaz2-yzC5sPFMtGsfH8t5xiMaAo56U",
-  authDomain: "jeudelimposteur.firebaseapp.com",
-  projectId: "jeudelimposteur",
-  storageBucket: "jeudelimposteur.firebasestorage.app",
-  messagingSenderId: "533130309819",
-  appId: "1:533130309819:web:9fc5577a8a31e70608b99e"
-};
+if (!window.firebaseConfig) {
+  throw new Error(
+    "firebase-config.js est introuvable. " +
+    "En local : crée-le à la racine (voir README). " +
+    "Sur GitHub Pages : vérifie le workflow de déploiement."
+  );
+}
 
-const app = initializeApp(firebaseConfig);
+const app = initializeApp(window.firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 
