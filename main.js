@@ -5,6 +5,7 @@ import {
   getDoc,
   setDoc,
   deleteDoc,
+  onSnapshot,
   runTransaction,
   serverTimestamp
 } from "./firebase.js";
@@ -14,8 +15,10 @@ import {
   MAX_PLAYERS,
   TURN_SECONDS,
   VOTE_SECONDS,
+  PALETTE,
   ALLOWED_HEX_SET,
   THEMES,
+  THEME_LIST,
   DEFAULT_THEME_ID,
   normalizeThemeId,
   pickSecretWord,
@@ -28,31 +31,6 @@ import {
   advanceWriteTurn,
   resolveVotes
 } from "./game.js";
-
-import {
-  attachSalonListener,
-  detachSalonListener,
-  persistSessionCodeForBoard,
-  openBoardWindow,
-  updateGameSessionCodeDisplay
-} from "./sessionManager.js";
-
-import {
-  initRender,
-  showScreen,
-  showError,
-  hideError,
-  renderCounter,
-  renderThemeSelector,
-  renderColorPicker,
-  renderLobby,
-  renderGame
-} from "./render.js";
-
-import {
-  initTimers,
-  setupTimerDom
-} from "./timers.js";
 
 const state = {
   sessionCode: null,
@@ -137,50 +115,32 @@ const resultBanner = document.getElementById("resultBanner");
 const gameLeaveBtn = document.getElementById("gameLeaveBtn");
 const nextRoundBtn = document.getElementById("nextRoundBtn");
 
-// Initialisation des modules
-initTimers(state);
-setupTimerDom({ phaseWriteView, writeInstruction, phaseVoteView, voteGrid });
+// Barre de tour actif + chronomètre d'écriture
+const turnBox = document.createElement("div");
+turnBox.className = "turn-box";
+const turnStatusText = document.createElement("span");
+turnStatusText.style.fontWeight = "600";
+const turnTimerPill = document.createElement("span");
+turnTimerPill.className = "timer-pill";
+turnTimerPill.textContent = `${TURN_SECONDS}s`;
+turnBox.append(turnStatusText, turnTimerPill);
+phaseWriteView.insertBefore(turnBox, writeInstruction);
 
-initRender({
-  state,
-  dom: {
-    screens,
-    profileError,
-    minPlayersNotice,
-    themeGrid,
-    themeHint,
-    playersGrid,
-    playerCountText,
-    statusDot,
-    hostControls,
-    kickAllBtn,
-    toggleReadyBtn,
-    colorsGrid,
-    roundDisplay,
-    phaseTitle,
-    roleBanner,
-    phaseWriteView,
-    writeInstruction,
-    wordForm,
-    wordInput,
-    submitWordBtn,
-    writeProgressText,
-    phaseDiscussView,
-    wordsList,
-    goToVoteBtn,
-    phaseVoteView,
-    voteGrid,
-    voteProgressText,
-    phaseResultView,
-    resultBanner,
-    nextRoundBtn
-  },
-  callbacks: {
-    isCurrentUserHost,
-    selectSessionTheme,
-    castVote
-  }
-});
+// Barre de chronomètre de vote (60s)
+const voteTimerBox = document.createElement("div");
+voteTimerBox.className = "turn-box";
+voteTimerBox.style.display = "flex";
+voteTimerBox.style.justifyContent = "space-between";
+voteTimerBox.style.alignItems = "center";
+voteTimerBox.style.marginBottom = "10px";
+const voteTimerLabel = document.createElement("span");
+voteTimerLabel.style.fontWeight = "600";
+voteTimerLabel.textContent = "Temps restant pour voter";
+const voteTimerPill = document.createElement("span");
+voteTimerPill.className = "timer-pill";
+voteTimerPill.textContent = `${VOTE_SECONDS}s`;
+voteTimerBox.append(voteTimerLabel, voteTimerPill);
+phaseVoteView.insertBefore(voteTimerBox, voteGrid);
 
 joinSubmitBtn.disabled = true;
 createSessionBtn.disabled = true;
@@ -189,20 +149,28 @@ function isCurrentUserHost() {
   return Boolean(state.playerId && state.hostId && state.playerId === state.hostId);
 }
 
-function startSalonListener(code) {
-  attachSalonListener(code, state, {
-    screens,
-    resetLocalSessionState,
-    showScreen,
-    renderGame,
-    renderLobby,
-    renderCounter,
-    renderColorPicker
-  });
+function updateGameSessionCodeDisplay(code = state.sessionCode) {
+  if (code) persistSessionCodeForBoard(code);
+}
+
+function persistSessionCodeForBoard(code) {
+  if (!code) return;
+  try {
+    sessionStorage.setItem("activeSessionCode", code);
+  } catch (_) {
+    // Ignorer si sessionStorage indisponible
+  }
+}
+
+function openBoardWindow(code) {
+  if (!code) return;
+  persistSessionCodeForBoard(code);
+  const url = `board.html?code=${encodeURIComponent(code)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function resetLocalSessionState(noticeMessage = "") {
-  detachSalonListener(state);
+  stopSalonListener();
   state.sessionCode = null;
   state.hostId = null;
   state.selectedThemeId = DEFAULT_THEME_ID;
@@ -218,6 +186,235 @@ function resetLocalSessionState(noticeMessage = "") {
   if (noticeMessage) {
     showError(codeError, noticeMessage);
   }
+}
+
+function showScreen(name) {
+  Object.values(screens).forEach((s) => s.classList.remove("active"));
+  screens[name].classList.add("active");
+  if (name === "game") {
+    updateGameSessionCodeDisplay(state.sessionCode);
+  }
+}
+
+function showError(el, msg) {
+  el.textContent = msg;
+  el.classList.add("visible");
+}
+
+function hideError(el) {
+  el.textContent = "";
+  el.classList.remove("visible");
+}
+
+function stopTurnTimer() {
+  if (state.turnTimerInterval) {
+    clearInterval(state.turnTimerInterval);
+    state.turnTimerInterval = null;
+  }
+}
+
+function stopVoteTimer() {
+  if (state.voteTimerInterval) {
+    clearInterval(state.voteTimerInterval);
+    state.voteTimerInterval = null;
+  }
+}
+
+function stopSalonListener() {
+  stopTurnTimer();
+  stopVoteTimer();
+  if (state.unsubscribeSalon) {
+    state.unsubscribeSalon();
+    state.unsubscribeSalon = null;
+  }
+}
+
+function getRemainingTurnSeconds(game) {
+  if (!game?.turnDeadline) return TURN_SECONDS;
+  const rawSeconds = Math.ceil((game.turnDeadline - Date.now()) / 1000);
+  return Math.max(0, Math.min(TURN_SECONDS, rawSeconds));
+}
+
+function updateTurnTimerDisplay(game) {
+  if (!game || game.phase !== "write") {
+    stopTurnTimer();
+    return;
+  }
+
+  const remaining = getRemainingTurnSeconds(game);
+  turnTimerPill.textContent = `${remaining}s`;
+  turnTimerPill.classList.toggle("urgent", remaining <= 5);
+
+  if (remaining <= 0 && state.sessionCode && state.playerId) {
+    const turnKey = `${game.round || 1}-${game.currentTurnIndex || 0}`;
+    if (state.timeoutTriggeredForTurn !== turnKey) {
+      state.timeoutTriggeredForTurn = turnKey;
+      handleTurnTimeout(game.currentTurnIndex || 0);
+    }
+  }
+}
+
+function startTurnTimer(game) {
+  const turnKey = `${game?.round || 1}-${game?.currentTurnIndex || 0}`;
+  if (state.timeoutTriggeredForTurn && !state.timeoutTriggeredForTurn.startsWith(turnKey)) {
+    state.timeoutTriggeredForTurn = null;
+  }
+  stopTurnTimer();
+  updateTurnTimerDisplay(game);
+  state.turnTimerInterval = setInterval(() => {
+    updateTurnTimerDisplay(state.game);
+  }, 250);
+}
+
+function getRemainingVoteSeconds(game) {
+  if (!game?.voteDeadline) return VOTE_SECONDS;
+  const rawSeconds = Math.ceil((game.voteDeadline - Date.now()) / 1000);
+  return Math.max(0, Math.min(VOTE_SECONDS, rawSeconds));
+}
+
+function updateVoteTimerDisplay(game) {
+  if (!game || game.phase !== "vote") {
+    stopVoteTimer();
+    return;
+  }
+
+  const remaining = getRemainingVoteSeconds(game);
+  voteTimerPill.textContent = `${remaining}s`;
+  voteTimerPill.classList.toggle("urgent", remaining <= 10);
+
+  if (remaining <= 0 && state.sessionCode && state.playerId) {
+    const voteKey = `${game.round || 1}`;
+    if (state.timeoutTriggeredForVoteRound !== voteKey) {
+      state.timeoutTriggeredForVoteRound = voteKey;
+      handleVoteTimeout();
+    }
+  }
+}
+
+function startVoteTimer(game) {
+  const voteKey = `${game?.round || 1}`;
+  if (state.timeoutTriggeredForVoteRound && state.timeoutTriggeredForVoteRound !== voteKey) {
+    state.timeoutTriggeredForVoteRound = null;
+  }
+  stopVoteTimer();
+  updateVoteTimerDisplay(game);
+  state.voteTimerInterval = setInterval(() => {
+    updateVoteTimerDisplay(state.game);
+  }, 250);
+}
+
+async function handleVoteTimeout() {
+  if (!state.sessionCode || !state.playerId) return;
+
+  try {
+    const salonRef = getSalonRef(state.sessionCode);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const game = data.game;
+      if (!game || game.phase !== "vote") return;
+
+      const deadline = game.voteDeadline || 0;
+      if (deadline && Date.now() < deadline - 200) return;
+
+      const players = sanitizePlayersList(data.players);
+      const outcome = resolveVotes(players, game);
+
+      transaction.update(salonRef, {
+        players: outcome.updatedPlayers,
+        game: {
+          ...game,
+          voteDeadline: null,
+          phase: outcome.nextPhase,
+          lastResult: outcome.resultData
+        },
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (err) {
+    console.error("Erreur expiration vote :", err);
+  }
+}
+
+async function handleTurnTimeout(expectedTurnIndex) {
+  if (!state.sessionCode || !state.playerId) return;
+
+  try {
+    const salonRef = getSalonRef(state.sessionCode);
+    await runTransaction(db, async (transaction) => {
+      const snap = await transaction.get(salonRef);
+      if (!snap.exists()) return;
+      const data = snap.data();
+      const game = data.game;
+      if (!game || game.phase !== "write") return;
+
+      const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
+      const currentIdx = game.currentTurnIndex || 0;
+      if (currentIdx !== expectedTurnIndex) return;
+
+      const deadline = game.turnDeadline || 0;
+      if (Date.now() < deadline - 150) return;
+
+      const activePlayerId = order[currentIdx];
+      const updatedWords = { ...(game.words || {}) };
+      if (activePlayerId && !(activePlayerId in updatedWords)) {
+        updatedWords[activePlayerId] = null;
+      }
+
+      const nextGame = advanceWriteTurn(
+        { ...game, words: updatedWords },
+        Date.now()
+      );
+
+      transaction.update(salonRef, {
+        game: nextGame,
+        updatedAt: serverTimestamp()
+      });
+    });
+  } catch (err) {
+    console.error("Erreur expiration tour :", err);
+  }
+}
+
+function renderCounter(players) {
+  const count = players.length;
+  playerCountText.textContent = `${count} / ${MAX_PLAYERS} ${count > 1 ? "joueurs" : "joueur"}`;
+  const enough = count >= MIN_PLAYERS;
+  statusDot.classList.toggle("ready", enough);
+
+  if (minPlayersNotice) {
+    if (count < MIN_PLAYERS) {
+      const missing = MIN_PLAYERS - count;
+      minPlayersNotice.textContent = `En attente de ${missing} ${missing > 1 ? "joueurs" : "joueur"} minimum`;
+      minPlayersNotice.style.color = "var(--warning)";
+    } else {
+      const readyCount = players.filter((p) => p.ready).length;
+      minPlayersNotice.textContent = `${readyCount} / ${count} joueurs prêts`;
+      minPlayersNotice.style.color = readyCount === count ? "var(--success)" : "var(--accent)";
+    }
+  }
+}
+
+function renderThemeSelector() {
+  const canPickTheme = isCurrentUserHost();
+  const activeTheme = THEMES[normalizeThemeId(state.selectedThemeId)];
+
+  themeHint.textContent = canPickTheme
+    ? `Thème actif : ${activeTheme.label} (clique pour changer)`
+    : `Thème choisi par l'hôte : ${activeTheme.label}`;
+
+  themeGrid.innerHTML = "";
+  THEME_LIST.forEach((theme) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "theme-btn" + (theme.id === state.selectedThemeId ? " active" : "");
+    btn.textContent = theme.label;
+    btn.disabled = !canPickTheme;
+
+    btn.addEventListener("click", () => selectSessionTheme(theme.id));
+    themeGrid.appendChild(btn);
+  });
 }
 
 async function selectSessionTheme(themeId) {
@@ -243,6 +440,319 @@ async function selectSessionTheme(themeId) {
   } catch (err) {
     console.error("Erreur sélection thème :", err);
   }
+}
+
+function renderColorPicker() {
+  const takenColors = new Set(state.players.map((p) => p.color));
+  colorsGrid.innerHTML = "";
+
+  PALETTE.forEach((c) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "color-btn";
+    btn.style.backgroundColor = c.hex;
+    btn.title = c.name;
+    const isTaken = takenColors.has(c.hex);
+
+    if (isTaken) {
+      btn.classList.add("taken");
+      btn.disabled = true;
+    } else if (state.selectedColor === c.hex) {
+      btn.classList.add("selected");
+    }
+
+    btn.addEventListener("click", () => {
+      if (isTaken) return;
+      state.selectedColor = c.hex;
+      hideError(profileError);
+      renderColorPicker();
+    });
+
+    colorsGrid.appendChild(btn);
+  });
+}
+
+function renderLobby() {
+    renderCounter(state.players);
+  renderThemeSelector();
+
+  const amHost = isCurrentUserHost();
+  hostControls.classList.toggle("hidden", !amHost);
+  kickAllBtn.disabled = state.players.length <= 1;
+
+  const me = state.players.find((p) => p.id === state.playerId);
+  if (me) {
+    toggleReadyBtn.textContent = me.ready ? "Annuler « Prêt »" : "Je suis prêt";
+    toggleReadyBtn.className = me.ready ? "btn-secondary" : "btn-success";
+  }
+
+  playersGrid.innerHTML = "";
+  state.players.forEach((p) => {
+    const card = document.createElement("div");
+    card.className = "player-card" + (p.ready ? " is-ready" : "");
+
+    const left = document.createElement("div");
+    left.className = "player-left";
+
+    const avatar = document.createElement("div");
+    avatar.className = "avatar";
+    avatar.style.backgroundColor = p.color;
+    avatar.textContent = p.name.charAt(0).toUpperCase();
+
+    const info = document.createElement("div");
+    const nameEl = document.createElement("div");
+    nameEl.className = "player-name";
+    nameEl.textContent = p.name;
+
+    const tags = [];
+    if (p.id === state.hostId) tags.push("Hôte ★");
+    tags.push(p.id === state.playerId ? "Toi" : "Connecté");
+
+    const tagEl = document.createElement("div");
+    tagEl.className = "player-tag";
+    tagEl.textContent = tags.join(" • ");
+
+    info.append(nameEl, tagEl);
+    left.append(avatar, info);
+
+    const readyPill = document.createElement("span");
+    readyPill.className = "ready-pill" + (p.ready ? " ready" : "");
+    readyPill.textContent = p.ready ? "Prêt ✓" : "En attente";
+
+    card.append(left, readyPill);
+    playersGrid.appendChild(card);
+  });
+}
+
+function renderGame() {
+  const game = state.game;
+  if (!game) return;
+
+  updateGameSessionCodeDisplay(state.sessionCode);
+  renderCounter(state.players);
+  const themeLabel = game.themeLabel || THEMES[normalizeThemeId(state.selectedThemeId)].label;
+  roundDisplay.textContent = `Manche ${game.round || 1} • Thème : ${themeLabel}`;
+
+  const me = state.players.find((p) => p.id === state.playerId);
+  const amImpostor = game.impostorId === state.playerId;
+  const amEliminated = Boolean(me?.eliminated);
+
+  if (amImpostor) {
+    roleBanner.className = "role-card impostor";
+    roleBanner.textContent = "Rôle : IMPOSTEUR • Mot secret caché — devine-le !";
+  } else {
+    roleBanner.className = "role-card detective";
+    roleBanner.textContent = `Mot secret : ${game.secretWord} • Enquêteur`;
+  }
+
+  phaseWriteView.classList.add("hidden");
+  phaseDiscussView.classList.add("hidden");
+  phaseVoteView.classList.add("hidden");
+  phaseResultView.classList.add("hidden");
+
+  const activePlayers = state.players.filter((p) => !p.eliminated);
+  const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
+  const currentTurnIdx = game.currentTurnIndex || 0;
+  const activeTurnPlayerId = order[currentTurnIdx] || null;
+  const activeTurnPlayer = state.players.find((p) => p.id === activeTurnPlayerId);
+  const isMyTurn = activeTurnPlayerId === state.playerId && !amEliminated;
+
+  if (game.phase === "write") {
+    stopVoteTimer();
+    phaseTitle.textContent = `Phase 1 / 3 : Écriture (${Math.min(currentTurnIdx + 1, order.length)} / ${order.length})`;
+    phaseWriteView.classList.remove("hidden");
+
+    const turnName = activeTurnPlayer
+      ? activeTurnPlayer.id === state.playerId
+        ? "C'est ton tour !"
+        : `Tour de ${activeTurnPlayer.name}`
+      : "Préparation du tour...";
+    turnStatusText.textContent = turnName;
+    startTurnTimer(game);
+
+    const completedTurns = order.filter((id) => Boolean(game.words && id in game.words)).length;
+
+    if (amEliminated) {
+      writeInstruction.textContent = "Tu as été éliminé. Observe les tours des joueurs restants.";
+      wordForm.classList.add("hidden");
+      wordInput.disabled = true;
+      submitWordBtn.disabled = true;
+    } else if (isMyTurn) {
+      wordForm.classList.remove("hidden");
+      wordInput.disabled = false;
+      submitWordBtn.disabled = false;
+      writeInstruction.textContent = amImpostor
+        ? `Thème « ${themeLabel} » : tu ne vois pas le mot secret. Devinez-le à partir des indices et écris un mot en moins de ${TURN_SECONDS}s !`
+        : `Le mot secret est « ${game.secretWord} » (thème ${themeLabel}). Écris un indice en moins de ${TURN_SECONDS}s :`;
+      if (document.activeElement !== wordInput) {
+        wordInput.focus();
+      }
+    } else {
+      wordForm.classList.add("hidden");
+      wordInput.disabled = true;
+      submitWordBtn.disabled = true;
+      writeInstruction.textContent = amImpostor
+        ? `Attends que ${activeTurnPlayer?.name || "le joueur"} écrive son mot pour t'aider à deviner le mot secret...`
+        : `Attends que ${activeTurnPlayer?.name || "le joueur"} écrive son mot (max ${TURN_SECONDS}s).`;
+    }
+
+    writeProgressText.textContent = `${completedTurns} / ${order.length} tours terminés.`;
+  } else {
+    stopTurnTimer();
+  }
+
+  if (game.phase === "discuss") {
+    stopVoteTimer();
+    phaseTitle.textContent = "Phase 2 / 3 : Délibération";
+    phaseDiscussView.classList.remove("hidden");
+
+    wordsList.innerHTML = "";
+    activePlayers.forEach((p) => {
+      const card = document.createElement("div");
+      card.className = "word-item";
+
+      const header = document.createElement("div");
+      header.className = "word-item-header";
+
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      dot.style.backgroundColor = p.color;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = p.name + (p.id === state.playerId ? " (Toi)" : "");
+
+      header.append(dot, nameSpan);
+
+      const submittedWord = game.words && p.id in game.words ? game.words[p.id] : null;
+      const wordVal = document.createElement("div");
+      if (submittedWord) {
+        wordVal.className = "word-value";
+        wordVal.textContent = submittedWord;
+      } else {
+        wordVal.className = "word-value missed";
+        wordVal.textContent = "Aucun mot (temps écoulé)";
+      }
+
+      card.append(header, wordVal);
+      wordsList.appendChild(card);
+    });
+
+    goToVoteBtn.disabled = amEliminated;
+  }
+
+  if (game.phase === "vote") {
+    phaseTitle.textContent = "Phase 3 / 3 : Vote d'exclusion";
+    phaseVoteView.classList.remove("hidden");
+    startVoteTimer(game);
+
+    const myVote = game.votes?.[state.playerId] || null;
+    const votedCount = activePlayers.filter((p) => Boolean(game.votes?.[p.id])).length;
+
+    voteGrid.innerHTML = "";
+    activePlayers.forEach((target) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "vote-btn" + (myVote === target.id ? " voted" : "");
+      btn.disabled = amEliminated || target.id === state.playerId;
+
+      const left = document.createElement("div");
+      left.className = "player-left";
+
+      const avatar = document.createElement("div");
+      avatar.className = "avatar";
+      avatar.style.backgroundColor = target.color;
+      avatar.textContent = target.name.charAt(0).toUpperCase();
+
+      const wordLabel =
+        game.words && target.id in game.words && game.words[target.id]
+          ? game.words[target.id]
+          : "Aucun mot";
+
+      const label = document.createElement("span");
+      label.textContent = `${target.name} (${wordLabel})`;
+
+      left.append(avatar, label);
+
+      const badge = document.createElement("span");
+      badge.className = "player-tag";
+      badge.textContent = myVote === target.id ? "Ton vote ✓" : "Voter";
+
+      btn.append(left, badge);
+      btn.addEventListener("click", () => castVote(target.id));
+      voteGrid.appendChild(btn);
+    });
+
+    voteProgressText.textContent = `${votedCount} / ${activePlayers.length} joueurs ont voté (vote nul si personne ne vote avant la fin du chrono).`;
+  } else {
+    stopVoteTimer();
+  }
+
+  if (game.phase === "result" || game.phase === "finished") {
+    stopVoteTimer();
+    phaseTitle.textContent = game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
+    phaseResultView.classList.remove("hidden");
+    resultBanner.textContent = game.lastResult?.message || "Manche terminée.";
+
+    nextRoundBtn.textContent =
+      game.phase === "finished" ? "Retour au salon" : "Manche suivante";
+  }
+}
+
+function startSalonListener(code) {
+  stopSalonListener();
+  state.unsubscribeSalon = onSnapshot(
+    getSalonRef(code),
+    (snap) => {
+      if (!snap.exists()) {
+        if (state.isNewSession && screens.profile.classList.contains("active")) {
+          return;
+        }
+        const wasActive =
+          screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
+        resetLocalSessionState(wasActive ? "La session a été supprimée par l'hôte." : "");
+        return;
+      }
+
+      const data = snap.data();
+      const hadJoinedRoom =
+        screens.lobby.classList.contains("active") || screens.game.classList.contains("active");
+
+      state.players = sanitizePlayersList(data.players);
+      state.hostId = resolveHostId(data.hostId, state.players);
+      state.selectedThemeId = normalizeThemeId(data.themeId);
+      state.game = data.game || null;
+
+      const meInRoom = state.players.some((p) => p.id === state.playerId);
+
+      if (hadJoinedRoom && !meInRoom) {
+        resetLocalSessionState("Tu as été expulsé de la session par l'hôte.");
+        return;
+      }
+
+      if (meInRoom && state.game && state.game.status === "playing") {
+        showScreen("game");
+        renderGame();
+        return;
+      }
+
+      if (screens.game.classList.contains("active") && !state.game) {
+        showScreen("lobby");
+      }
+
+      if (screens.lobby.classList.contains("active")) {
+        renderLobby();
+      } else if (screens.profile.classList.contains("active")) {
+        renderCounter(state.players);
+        if (state.selectedColor && state.players.some((p) => p.color === state.selectedColor)) {
+          state.selectedColor = null;
+        }
+        renderColorPicker();
+      }
+    },
+    (err) => {
+      console.error("Erreur temps réel Firestore :", err);
+    }
+  );
 }
 
 initAnonymousSession(
@@ -418,7 +928,7 @@ profileForm.addEventListener("submit", async (e) => {
     showError(profileError, "Merci d'inscrire ton nom.");
     return;
   }
-   if (!chosenColor || !ALLOWED_HEX_SET.has(chosenColor)) {
+  if (!chosenColor || !ALLOWED_HEX_SET.has(chosenColor)) {
     showError(profileError, "Merci de choisir une couleur valide.");
     return;
   }
@@ -701,7 +1211,7 @@ wordForm.addEventListener("submit", async (e) => {
     if (err.message === "NOT_YOUR_TURN") {
       showError(gameError, "Ce n'est pas ton tour d'écrire.");
     } else if (err.message === "TIME_EXPIRED") {
-      showError(gameError, `Les ${TURN_SECONDS} secondes sont écoulées : tu perds ton mot pour ce tour.`);
+      showError(gameError, "Les 20 secondes sont écoulées : tu perds ton mot pour ce tour.");
     } else {
       console.error("Erreur envoi mot :", err);
       showError(gameError, "Impossible d'enregistrer ton mot.");
@@ -792,7 +1302,7 @@ async function castVote(targetId) {
     });
   } catch (err) {
     if (err.message === "VOTE_TIME_EXPIRED") {
-      showError(gameError, `Le temps de vote (${VOTE_SECONDS}s) est écoulé.`);
+      showError(gameError, "Le temps de vote (60s) est écoulé.");
     } else {
       console.error("Erreur vote :", err);
       showError(gameError, "Erreur lors de l'enregistrement du vote.");
