@@ -6,7 +6,6 @@ import {
   THEMES,
   THEME_LIST,
   normalizeThemeId,
-  getActiveParticipants,
 } from "./game.js";
 import {
   state,
@@ -24,31 +23,26 @@ import {
 } from "./timers.js";
 
 export function renderCounter(players) {
-  const participants = getActiveParticipants(players);
-  const count = participants.length;
+  const count = players.length;
   dom.playerCountText.textContent = `${count} / ${MAX_PLAYERS} ${count > 1 ? "joueurs" : "joueur"}`;
   dom.statusDot.classList.toggle("ready", count >= MIN_PLAYERS);
 
   if (!dom.minPlayersNotice) return;
 
-  const codePrefix = state.sessionCode ? `Code : ${state.sessionCode} • ` : "";
-
   if (count < MIN_PLAYERS) {
     const missing = MIN_PLAYERS - count;
-    dom.minPlayersNotice.textContent = `${codePrefix}En attente de ${missing} ${missing > 1 ? "joueurs" : "joueur"} minimum`;
+    dom.minPlayersNotice.textContent = `En attente de ${missing} ${missing > 1 ? "joueurs" : "joueur"} minimum`;
     dom.minPlayersNotice.style.color = "var(--warning)";
   } else {
-    const readyCount = participants.filter((p) => p.ready).length;
-    dom.minPlayersNotice.textContent = `${codePrefix}${readyCount} / ${count} joueurs prêts`;
+    const readyCount = players.filter((p) => p.ready).length;
+    dom.minPlayersNotice.textContent = `${readyCount} / ${count} joueurs prêts`;
     dom.minPlayersNotice.style.color =
       readyCount === count ? "var(--success)" : "var(--accent)";
   }
 }
 
 export function renderColorPicker() {
-  const takenColors = new Set(
-    getActiveParticipants(state.players).map((p) => p.color),
-  );
+  const takenColors = new Set(state.players.map((p) => p.color));
   dom.colorsGrid.innerHTML = "";
 
   PALETTE.forEach((c) => {
@@ -78,10 +72,12 @@ export function renderColorPicker() {
 }
 
 export function renderThemeSelector(onSelectTheme) {
-  const canPickTheme = isCurrentUserHost() || Boolean(state.sessionCode);
+  const canPickTheme = isCurrentUserHost();
   const activeTheme = THEMES[normalizeThemeId(state.selectedThemeId)];
 
-  dom.themeHint.textContent = `Thème actif : ${activeTheme.label} (clique pour changer)`;
+  dom.themeHint.textContent = canPickTheme
+    ? `Thème actif : ${activeTheme.label} (clique pour changer)`
+    : `Thème choisi par l'hôte : ${activeTheme.label}`;
 
   dom.themeGrid.innerHTML = "";
   THEME_LIST.forEach((theme) => {
@@ -96,19 +92,24 @@ export function renderThemeSelector(onSelectTheme) {
   });
 }
 
-export function renderLobby(onSelectTheme, onKickPlayer = null) {
+export function renderLobby(onSelectTheme) {
   renderCounter(state.players);
   renderThemeSelector(onSelectTheme);
 
   const amHost = isCurrentUserHost();
-  const participants = getActiveParticipants(state.players);
-
   dom.hostControls.classList.toggle("hidden", !amHost);
-  dom.kickAllBtn.disabled = participants.length === 0;
+  dom.kickAllBtn.disabled = state.players.length === 0;
   dom.toggleReadyBtn.classList.toggle("hidden", amHost);
 
+  if (dom.minPlayersNotice && state.sessionCode) {
+    const baseText = dom.minPlayersNotice.textContent;
+    if (!baseText.includes(`Code : ${state.sessionCode}`)) {
+      dom.minPlayersNotice.textContent = `Code : ${state.sessionCode} • ${baseText}`;
+    }
+  }
+
   if (!amHost) {
-    const me = participants.find((p) => p.id === state.playerId);
+    const me = state.players.find((p) => p.id === state.playerId);
     if (me) {
       dom.toggleReadyBtn.textContent = me.ready
         ? "Annuler « Prêt »"
@@ -118,7 +119,7 @@ export function renderLobby(onSelectTheme, onKickPlayer = null) {
   }
 
   dom.playersGrid.innerHTML = "";
-  participants.forEach((p) => {
+  state.players.forEach((p) => {
     const card = document.createElement("div");
     card.className = "player-card" + (p.ready ? " is-ready" : "");
 
@@ -135,7 +136,8 @@ export function renderLobby(onSelectTheme, onKickPlayer = null) {
     nameEl.className = "player-name";
     nameEl.textContent = p.name;
 
-    const tags = [p.id === state.playerId ? "Toi" : "Joueur"];
+    const tags = [p.id === state.playerId ? "Toi" : "Connecté"];
+
     const tagEl = document.createElement("div");
     tagEl.className = "player-tag";
     tagEl.textContent = tags.join(" • ");
@@ -143,28 +145,11 @@ export function renderLobby(onSelectTheme, onKickPlayer = null) {
     info.append(nameEl, tagEl);
     left.append(avatar, info);
 
-    const rightBox = document.createElement("div");
-    rightBox.style.display = "flex";
-    rightBox.style.alignItems = "center";
-    rightBox.style.gap = "6px";
-
     const readyPill = document.createElement("span");
     readyPill.className = "ready-pill" + (p.ready ? " ready" : "");
     readyPill.textContent = p.ready ? "Prêt ✓" : "En attente";
-    rightBox.append(readyPill);
 
-    if (amHost && typeof onKickPlayer === "function") {
-      const kickBtn = document.createElement("button");
-      kickBtn.type = "button";
-      kickBtn.className = "btn-danger";
-      kickBtn.style.padding = "4px 8px";
-      kickBtn.style.fontSize = "0.75rem";
-      kickBtn.textContent = "Exclure";
-      kickBtn.addEventListener("click", () => onKickPlayer(p.id));
-      rightBox.append(kickBtn);
-    }
-
-    card.append(left, rightBox);
+    card.append(left, readyPill);
     dom.playersGrid.appendChild(card);
   });
 }
@@ -180,14 +165,9 @@ export function renderGame(onCastVote) {
     game.themeLabel || THEMES[normalizeThemeId(state.selectedThemeId)].label;
   dom.roundDisplay.textContent = `Manche ${game.round || 1} • Thème : ${themeLabel}`;
 
-  const activePlayers = getActiveParticipants(state.players).filter(
-    (p) => !p.eliminated,
-  );
-  const me = activePlayers.find((p) => p.id === state.playerId);
+  const me = state.players.find((p) => p.id === state.playerId);
   const amImpostor = game.impostorId === state.playerId;
-  const amEliminated = Boolean(
-    state.players.find((p) => p.id === state.playerId)?.eliminated,
-  );
+  const amEliminated = Boolean(me?.eliminated);
 
   if (amImpostor) {
     dom.roleBanner.className = "role-card impostor";
@@ -205,16 +185,17 @@ export function renderGame(onCastVote) {
     dom.phaseResultView,
   ].forEach((v) => v.classList.add("hidden"));
 
+  const activePlayers = state.players.filter((p) => !p.eliminated);
+
   if (game.phase === "write") {
     stopVoteTimer();
     const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
     const currentTurnIdx = game.currentTurnIndex || 0;
     const activeTurnPlayerId = order[currentTurnIdx] || null;
-    const activeTurnPlayer = activePlayers.find(
+    const activeTurnPlayer = state.players.find(
       (p) => p.id === activeTurnPlayerId,
     );
-    const isMyTurn =
-      activeTurnPlayerId === state.playerId && !amEliminated && Boolean(me);
+    const isMyTurn = activeTurnPlayerId === state.playerId && !amEliminated;
 
     dom.phaseTitle.textContent = `Phase 1 / 3 : Écriture (${Math.min(currentTurnIdx + 1, order.length)} / ${order.length})`;
     dom.phaseWriteView.classList.remove("hidden");
@@ -230,10 +211,9 @@ export function renderGame(onCastVote) {
       Boolean(game.words && id in game.words),
     ).length;
 
-    if (amEliminated || !me) {
-      dom.writeInstruction.textContent = !me
-        ? "Mode observateur : tu suis la partie sans y jouer."
-        : "Tu as été éliminé. Observe les tours des joueurs restants.";
+    if (amEliminated) {
+      dom.writeInstruction.textContent =
+        "Tu as été éliminé. Observe les tours des joueurs restants.";
       dom.wordForm.classList.add("hidden");
       dom.wordInput.disabled = true;
       dom.submitWordBtn.disabled = true;
@@ -291,7 +271,7 @@ export function renderGame(onCastVote) {
       dom.wordsList.appendChild(card);
     });
 
-    dom.goToVoteBtn.disabled = amEliminated || !me;
+    dom.goToVoteBtn.disabled = amEliminated;
     return;
   }
 
@@ -310,7 +290,7 @@ export function renderGame(onCastVote) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "vote-btn" + (myVote === target.id ? " voted" : "");
-      btn.disabled = amEliminated || !me || target.id === state.playerId;
+      btn.disabled = amEliminated || target.id === state.playerId;
 
       const left = document.createElement("div");
       left.className = "player-left";
