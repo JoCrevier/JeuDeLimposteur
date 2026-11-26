@@ -101,11 +101,7 @@ async function selectSessionTheme(themeId) {
 
   try {
     await updateSalonTransaction((transaction, salonRef, data) => {
-      const currentHost = resolveHostId(
-        data.hostId,
-        sanitizePlayersList(data.players),
-      );
-      if (currentHost !== state.playerId) return;
+      if (data.hostId !== state.playerId) return;
       transaction.update(salonRef, {
         themeId: safeThemeId,
         updatedAt: serverTimestamp(),
@@ -512,8 +508,7 @@ dom.kickAllBtn.addEventListener("click", async () => {
 
   try {
     await updateSalonTransaction((transaction, salonRef, data) => {
-      const players = sanitizePlayersList(data.players);
-      if (resolveHostId(data.hostId, players) !== state.playerId) return;
+      if (data.hostId !== state.playerId) return;
 
       transaction.update(salonRef, {
         hostId: state.playerId,
