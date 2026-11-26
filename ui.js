@@ -101,13 +101,6 @@ export function renderLobby(onSelectTheme) {
   dom.kickAllBtn.disabled = state.players.length === 0;
   dom.toggleReadyBtn.classList.toggle("hidden", amHost);
 
-  if (dom.minPlayersNotice && state.sessionCode) {
-    const baseText = dom.minPlayersNotice.textContent;
-    if (!baseText.includes(`Code : ${state.sessionCode}`)) {
-      dom.minPlayersNotice.textContent = `Code : ${state.sessionCode} • ${baseText}`;
-    }
-  }
-
   if (!amHost) {
     const me = state.players.find((p) => p.id === state.playerId);
     if (me) {
@@ -178,6 +171,7 @@ export function renderGame(onCastVote) {
     dom.roleBanner.textContent = `Mot secret : ${game.secretWord} • Enquêteur`;
   }
 
+  // Masquer toutes les sous-vues avant d'afficher la phase active
   [
     dom.phaseWriteView,
     dom.phaseDiscussView,
@@ -187,6 +181,7 @@ export function renderGame(onCastVote) {
 
   const activePlayers = state.players.filter((p) => !p.eliminated);
 
+  // Phase 1 : Écriture
   if (game.phase === "write") {
     stopVoteTimer();
     const order = Array.isArray(game.turnOrder) ? game.turnOrder : [];
@@ -240,6 +235,7 @@ export function renderGame(onCastVote) {
 
   stopTurnTimer();
 
+  // Phase 2 : Délibération
   if (game.phase === "discuss") {
     stopVoteTimer();
     dom.phaseTitle.textContent = "Phase 2 / 3 : Délibération";
@@ -275,6 +271,7 @@ export function renderGame(onCastVote) {
     return;
   }
 
+  // Phase 3 : Vote
   if (game.phase === "vote") {
     dom.phaseTitle.textContent = "Phase 3 / 3 : Vote d'exclusion";
     dom.phaseVoteView.classList.remove("hidden");
@@ -324,6 +321,7 @@ export function renderGame(onCastVote) {
 
   stopVoteTimer();
 
+  // Phase 4 : Résultat ou Fin de partie
   if (game.phase === "result" || game.phase === "finished") {
     dom.phaseTitle.textContent =
       game.phase === "finished" ? "Fin de la partie" : "Résultat du vote";
