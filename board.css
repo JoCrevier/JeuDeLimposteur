@@ -1,7 +1,7 @@
 :root {
   --bg-primary: #7056E8;
   --bg-secondary: #FF6FAE;
-  --bg-card: rgba(17, 24, 39, 0.88);
+  --bg-card: #FF6FAE;
   --bg-card-soft: rgba(30, 41, 59, 0.72);
   --border-subtle: rgba(148, 163, 184, 0.18);
   --border-accent: rgba(99, 102, 241, 0.55);
