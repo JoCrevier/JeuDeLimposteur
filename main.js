@@ -54,9 +54,6 @@ import {
 dom.joinSubmitBtn.disabled = true;
 dom.createSessionBtn.disabled = true;
 
-import { initBackgroundAnimations } from "./bg-animation.js";
-initBackgroundAnimations(11);
-
 function stopSalonListener() {
   stopTurnTimer();
   stopVoteTimer();
