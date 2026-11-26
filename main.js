@@ -724,3 +724,4 @@ dom.nextRoundBtn.addEventListener("click", async () => {
     dom.nextRoundBtn.disabled = false;
   }
 });
+

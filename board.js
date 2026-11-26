@@ -399,3 +399,4 @@ initAnonymousSession(
     boardStatusSubtext.textContent = "Erreur de connexion à la session.";
   }
 );
+
